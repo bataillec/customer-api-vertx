@@ -7,8 +7,10 @@ import io.vertx.ext.web.RoutingContext
 
 object EventbusUtils {
   implicit class MyEventBus(val eb: EventBus) {
+    private val TIMEOUT_IN_SEC = 10
+
     def sendFuture[T](address: String, message: scala.Option[AnyRef], options: DeliveryOptions): Future[Message[T]] = {
-      eb.request[T](address, message.orNull, options)
+      eb.request[T](address, message.orNull, options.setSendTimeout(TIMEOUT_IN_SEC * 1000))
     }
   }
 
@@ -29,6 +31,14 @@ object EventbusUtils {
   def addHeaderParam(deliveryOptions: DeliveryOptions, rc: RoutingContext, name: String): DeliveryOptions = {
     val header = Option(rc.request().headers().get(name)).getOrElse(throw new Exception(s"The header param '$name' is not found in the request"))
     deliveryOptions.addHeader(name, header)
+  }
+
+  def addOptionalHeaderParam(deliveryOptions: DeliveryOptions, rc: RoutingContext, name: String, defaultValue: Option[String] = None): DeliveryOptions = {
+    (Option(rc.request().headers().get(name)), defaultValue) match {
+      case (Some(value), _)    => deliveryOptions.addHeader(name, value)
+      case (None, Some(value)) => deliveryOptions.addHeader(name, value)
+      case _                   => deliveryOptions
+    }
   }
 
   def addQueryParam(deliveryOptions: DeliveryOptions, rc: RoutingContext, name: String): DeliveryOptions = {

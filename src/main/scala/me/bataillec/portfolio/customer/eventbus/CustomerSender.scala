@@ -10,6 +10,7 @@ class CustomerSender(eventbus: EventBus) {
   def createCustomer(rc: RoutingContext): Future[String] = {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, "createCustomer")
     val data            = getBodyAsJson(rc).encode()
+    addOptionalHeaderParam(deliveryOptions, rc, "Idempotency-Key")
 
     eventbus.sendFuture[String]("customer", Some(data), deliveryOptions).map { (r: Message[String]) =>
       r.body()
@@ -18,8 +19,6 @@ class CustomerSender(eventbus: EventBus) {
 
   def getCustomers(rc: RoutingContext): Future[String] = {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, "listCustomers")
-
-    addHeaderParam(deliveryOptions, rc, "Idempotency-Key")
 
     addOptionalQueryParam(deliveryOptions, rc, "limit", Some("50"))
     addOptionalQueryParam(deliveryOptions, rc, "cursor")
@@ -53,9 +52,9 @@ class CustomerSender(eventbus: EventBus) {
 
   def subscribe(rc: RoutingContext): Future[String] = {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, "subscribe")
-    addHeaderParam(deliveryOptions, rc, "Idempotency-Key")
+    addOptionalHeaderParam(deliveryOptions, rc, "Idempotency-Key")
     addPathParam(deliveryOptions, rc, "id")
-    val data            = getBodyAsJson(rc)
+    val data            = getBodyAsJson(rc).encode()
 
     eventbus.sendFuture[String]("customer", Some(data), deliveryOptions).map { (r: Message[String]) =>
       r.body
@@ -84,9 +83,9 @@ class CustomerSender(eventbus: EventBus) {
 
   def consumeEntitlement(rc: RoutingContext): Future[String] = {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, "consumeEntitlement")
-    addHeaderParam(deliveryOptions, rc, "Idempotency-Key")
+    addOptionalHeaderParam(deliveryOptions, rc, "Idempotency-Key")
     addPathParam(deliveryOptions, rc, "id")
-    val data            = getBodyAsJson(rc)
+    val data            = getBodyAsJson(rc).encode()
 
     eventbus.sendFuture[String]("customer", Some(data), deliveryOptions).map { (r: Message[String]) =>
       r.body

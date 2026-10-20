@@ -264,9 +264,8 @@ components:
         remaining_quota: { type: integer, format: int64 }
     Problem:
       type: object
-      required: [ type, title, status, code ]
+      required: [ title, status, code ]
       properties:
-        type: { type: string, example: 'https://portfolio.dev/problems/quota-exceeded' }
         title: { type: string }
         status: { type: integer }
         code: { type: string, example: QUOTA_EXCEEDED }

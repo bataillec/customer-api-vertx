@@ -1,6 +1,6 @@
 package me.bataillec.portfolio.customer.http
 
-import io.vertx.core.json.JsonObject
+import io.vertx.core.json.{Json, JsonObject}
 
 import scala.jdk.CollectionConverters.*
 
@@ -16,8 +16,8 @@ object HttpResponse {
     val json = JsonObject(s)
 
     HttpResponse(
-      statusCode = Option(json.getInteger("statusCode").intValue()).getOrElse(200),
-      body = json.getJsonObject("body", JsonObject()).encode(),
+      statusCode = json.getInteger("statusCode", 200).intValue(),
+      body = Json.encode(json.getValue("body", JsonObject())),
       contentType = Option(json.getString("contentType")).getOrElse("application/json"),
       headers = json.getJsonObject("headers", JsonObject()).getMap.asScala.map((k, v) => k -> v.toString).toMap
     )

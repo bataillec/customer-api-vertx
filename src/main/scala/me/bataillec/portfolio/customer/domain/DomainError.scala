@@ -6,6 +6,8 @@ import scala.util.control.NoStackTrace
 sealed abstract class DomainError(message: String, val status: Int, val code: String, val title: String) extends Exception(message) with NoStackTrace
 
 object DomainError {
+  final case class UnknownError(msg: String) extends DomainError(s"Unknown error occurred: $msg", 500, "UNKOWN_ERROR", "Unkown error")
+
   final case class CustomerNotFound(id: UUID) extends DomainError(s"Customer '$id' does not exist", 404, "CUSTOMER_NOT_FOUND", "Customer not found")
 
   final case class EmailAlreadyUsed(email: String)
@@ -14,6 +16,6 @@ object DomainError {
   final case class QuotaExceeded(featureKey: String, retryAfterSeconds: Long)
       extends DomainError(s"Quota for '$featureKey' is exhausted. Retry in $retryAfterSeconds seconds", 429, "QUOTA_EXCEEDED", "Quota exceeded")
 
-  final case class EntitlementNotFound(customerId: UUID, featureHey: String)
-      extends DomainError(s"Customer '$customerId' has no entitlement '$featureHey'", 404, "ENTITLEMENT_NOT_FOUND", "Entitlement not found")
+  final case class EntitlementNotFound(customerId: UUID, featureKey: String)
+      extends DomainError(s"Customer '$customerId' has no entitlement '$featureKey'", 404, "ENTITLEMENT_NOT_FOUND", "Entitlement not found")
 }

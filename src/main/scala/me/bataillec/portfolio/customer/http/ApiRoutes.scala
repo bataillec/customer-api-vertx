@@ -22,7 +22,7 @@ object ApiRoutes {
       .build()
       .map { contract =>
         val builder = RouterBuilder.create(vertx, contract, RequestExtractor.withBodyHandler())
-        builder.rootHandler(BodyHandler.create().setBodyLimit(64 * 1024))
+        builder.rootHandler(BodyHandler.create(false).setBodyLimit(64 * 1024))
 
         def op(id: String)(handler: RoutingContext => Future[Unit]): Unit = {
           builder.getRoute(id).addHandler(ctx => handler(ctx).onFailure(ctx.fail(_)))
@@ -107,14 +107,19 @@ object ApiRoutes {
       }
   }
 
-  private def makeResponse(ctx: RoutingContext, response: String): Unit =
-    json(ctx, HttpResponse.fromJsonString(response))
+  private def makeResponse(ctx: RoutingContext, response: String): Unit = {
+    val r = HttpResponse.fromJsonString(response)
+    Problem.getDomainErrorFromHttpResponse(r) match {
+      case Some(value) => throw value
+      case None        => json(ctx, r)
+    }
+  }
 
   private def json(ctx: RoutingContext, response: HttpResponse): Unit = {
     val res = ctx
       .response()
       .setStatusCode(response.statusCode)
-      .putHeader("Content-Type", defaultContentType)
+      .putHeader("Content-Type", response.contentType)
     response.headers.foreach { (k, v) =>
       res.putHeader(k, v)
     }

@@ -14,13 +14,14 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
 
-        <main.class>me.bataillec.portfolio.customer.HttpServerVerticle</main.class>
+        <main.class>io.vertx.launcher.application.VertxApplication</main.class>
+        <main.verticle>me.bataillec.portfolio.customer.HttpServerVerticle</main.verticle>
 
         <scala.version>3.3.7</scala.version>
         <scala.major.version>3</scala.major.version>
         <logback.version>1.6.3</logback.version>
 
-        <vertx.version>5.2.0</vertx.version>
+        <vertx.version>5.2.1</vertx.version>
         <flyway.version>13.10.0</flyway.version>
         <postgresql.version>42.7.14</postgresql.version>
 
@@ -186,6 +187,10 @@
                                 <transformer
                                         implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>${main.class}</mainClass>
+                                    <manifestEntries>
+                                        <Main-Verticle>${main.verticle}</Main-Verticle>
+                                        <Multi-Release>true</Multi-Release>
+                                    </manifestEntries>
                                 </transformer>
                                 <transformer
                                         implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
