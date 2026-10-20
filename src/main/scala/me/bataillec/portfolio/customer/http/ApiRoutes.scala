@@ -104,6 +104,16 @@ object ApiRoutes {
         val router = builder.createRouter()
         router.route().failureHandler(Problem.failureHandler)
 
+        // expose the spec as JSON
+        router
+          .get("/openapi.json")
+          .handler(ctx =>
+            ctx
+              .response()
+              .putHeader(CONTENT_TYPE_FIELD, DEFAULT_CONTENT_TYPE)
+              .end(contract.getRawContract().encode())
+          );
+
         router
       }
   }
