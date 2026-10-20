@@ -6,13 +6,16 @@ import io.vertx.core.{Promise, Vertx}
 import io.vertx.ext.healthchecks.Status
 
 object SenderUtils {
+  private val PING = "ping"
+  private val PONG = "pong"
+  
   def ping(vertx: Vertx, address: String, promise: Promise[Status]): Unit = {
     vertx
       .eventBus()
       .request[String](
         address,
-        "ping",
-        new DeliveryOptions().setSendTimeout(800)
+        PING,
+        new DeliveryOptions().setSendTimeout(EventbusUtils.getTimeout)
       )
       .onSuccess { _ =>
         promise.complete(Status.OK)
@@ -27,7 +30,7 @@ object SenderUtils {
       .eventBus()
       .consumer[String](
         address,
-        msg => msg.reply("pong")
+        msg => msg.reply(PONG)
       )
   }
 }

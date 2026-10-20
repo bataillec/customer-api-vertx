@@ -6,8 +6,11 @@ import io.vertx.core.json.{DecodeException, JsonObject}
 import io.vertx.ext.web.RoutingContext
 
 object EventbusUtils {
+  private val TIMEOUT_IN_SEC = 10
+
+  def getTimeout: Int = TIMEOUT_IN_SEC
+
   implicit class MyEventBus(val eb: EventBus) {
-    private val TIMEOUT_IN_SEC = 10
 
     def sendFuture[T](address: String, message: scala.Option[AnyRef], options: DeliveryOptions): Future[Message[T]] = {
       eb.request[T](address, message.orNull, options.setSendTimeout(TIMEOUT_IN_SEC * 1000))

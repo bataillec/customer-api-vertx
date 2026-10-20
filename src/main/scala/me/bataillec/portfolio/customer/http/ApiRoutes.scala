@@ -7,70 +7,67 @@ import io.vertx.ext.web.healthchecks.HealthCheckHandler
 import io.vertx.ext.web.openapi.router.{RequestExtractor, RouterBuilder}
 import io.vertx.ext.web.{Router, RoutingContext}
 import io.vertx.openapi.contract.OpenAPIContract
+import me.bataillec.portfolio.customer.Constants.*
 import me.bataillec.portfolio.customer.eventbus.{CustomerSender, SenderUtils}
 
 object ApiRoutes {
-  private val openApiPath        = "openapi.yaml"
-  private val defaultContentType = "application/json"
-
-  private val healthcheckTimeout = 1000 // in milliseconds
 
   def build(vertx: Vertx, sender: CustomerSender): Future[Router] = {
     OpenAPIContract
       .builder(vertx)
-      .setContractPath(openApiPath)
+      .setContractPath(OPENAPI_PATH)
       .build()
       .map { contract =>
         val builder = RouterBuilder.create(vertx, contract, RequestExtractor.withBodyHandler())
-        builder.rootHandler(BodyHandler.create(false).setBodyLimit(64 * 1024))
+        builder.rootHandler(BodyHandler.create(false).setBodyLimit(BODY_LIMIT))
 
         def op(id: String)(handler: RoutingContext => Future[Unit]): Unit = {
           builder.getRoute(id).addHandler(ctx => handler(ctx).onFailure(ctx.fail(_)))
         }
 
-        op("createCustomer") { ctx =>
+        op(createCustomer_ID) { ctx =>
           sender.createCustomer(ctx).map { r =>
             makeResponse(ctx, r)
           }
         }
 
-        op("listCustomers") { ctx =>
+        op(listCustomers_ID) { ctx =>
           sender.getCustomers(ctx).map { r =>
             makeResponse(ctx, r)
           }
         }
 
-        op("getCustomer") { ctx =>
+        op(getCustomer_ID) { ctx =>
           sender.getCustomer(ctx).map { r =>
             makeResponse(ctx, r)
           }
         }
 
-        op("updateCustomer") { ctx =>
+        op(updateCustomer_ID) { ctx =>
           sender.updateCustomer(ctx).map { r =>
             makeResponse(ctx, r)
           }
         }
 
-        op("subscribe") { ctx =>
+        op(subscribe_ID) { ctx =>
           sender.subscribe(ctx).map { r =>
             makeResponse(ctx, r)
           }
         }
 
-        op("listSubscriptions") { ctx =>
+        op(listSubscriptions_ID) { ctx =>
           sender.getSubscriptions(ctx).map { r =>
             makeResponse(ctx, r)
           }
         }
 
-        op("listEntitlements") { ctx =>
+        op(listEntitlements_ID) { ctx =>
           sender.getEntitlements(ctx).map { r =>
             makeResponse(ctx, r)
           }
         }
 
-        op("consumeEntitlement") { ctx =>
+        op(consumeEntitlement_ID) { ctx =>
           sender.consumeEntitlement(ctx).map { r =>
             makeResponse(ctx, r)
           }
@@ -78,26 +75,30 @@ object ApiRoutes {
 
         // Liveness: no dependency checks, just "the eventloop answers"
         val live = HealthChecks.create(vertx)
-        live.register("process", promise => promise.complete(Status.OK))
+        live.register(HTTPSERVER_VERTICLE, promise => promise.complete(Status.OK))
 
         // Readiness: dependencies,each with a timeout
         val ready = HealthChecks.create(vertx)
         ready.register(
-          "customer-verticle",
-          healthcheckTimeout,
-          promise => SenderUtils.ping(vertx, "customer.health", promise)
+          CUSTOMER_VERTICLE,
+          HEALTH_CHECK_TIMEOUT,
+          promise => {
+            SenderUtils.ping(vertx, CUSTOMER_HEALTH_ADDRESS, promise)
+          }
         )
         ready.register(
-          "audit-verticle",
-          healthcheckTimeout,
-          promise => SenderUtils.ping(vertx, "audit.health", promise)
+          AUDIT_VERTICLE,
+          HEALTH_CHECK_TIMEOUT,
+          promise => {
+            SenderUtils.ping(vertx, AUDIT_HEALTH_ADDRESS, promise)
+          }
         )
 
         builder
-          .getRoute("live")
+          .getRoute(live_ID)
           .addHandler(HealthCheckHandler.createWithHealthChecks(live))
         builder
-          .getRoute("ready")
+          .getRoute(ready_ID)
           .addHandler(HealthCheckHandler.createWithHealthChecks(ready))
 
         val router = builder.createRouter()
@@ -119,7 +120,7 @@ object ApiRoutes {
     val res = ctx
       .response()
       .setStatusCode(response.statusCode)
-      .putHeader("Content-Type", response.contentType)
+      .putHeader(CONTENT_TYPE, response.contentType)
     response.headers.foreach { (k, v) =>
       res.putHeader(k, v)
     }
