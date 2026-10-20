@@ -25,6 +25,8 @@ object Constants {
 
   val HTTP_PORT               = "HTTP_PORT"
   val HTTP_PORT_DEFAULT_VALUE = 8080
+  val AUDIT_FILE_PATH = "AUDIT_FILE_PATH"
+  val DEFAULT_AUDIT_FILE_PATH = "./audit.log"
 
   // endregion
 
@@ -90,6 +92,7 @@ object Constants {
   val CUSTOMER_ADDRESS        = "customer"
   val CUSTOMER_HEALTH_ADDRESS = s"$CUSTOMER_ADDRESS.health"
   val AUDIT_HEALTH_ADDRESS    = "audit.health"
+  val AUDIT_ADDRESS = "audit"
 
   // endregion
 
