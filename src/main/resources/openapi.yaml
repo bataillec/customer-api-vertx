@@ -1,0 +1,274 @@
+openapi: 3.0.3
+info:
+  title: Customer Subscription & Entitlement API
+  version: 1.0.0
+  description: Contract-first source of truth for customer-api-vertx.
+servers:
+  - url: "http://localhost:9000"
+tags:
+  - name: customers
+  - name: subscriptions
+  - name: entitlements
+  - name: ops
+paths:
+  /customers:
+    post:
+      tags: [ customers ]
+      operationId: createCustomer
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCustomer' }
+      responses:
+        '201':
+          description: Created
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [ customers ]
+      operationId: listCustomers
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/CustomerStatus' } }
+      responses:
+        '200':
+          description: Page of customers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ items ]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Customer' } }
+                  next_cursor: { type: string, nullable: true }
+  /customers/{id}:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    get:
+      tags: [ customers ]
+      operationId: getCustomer
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '404': { $ref: '#/components/responses/Problem' }
+    patch:
+      tags: [ customers ]
+      operationId: updateCustomer
+      parameters:
+        - { name: If-Match, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateCustomer' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Customer' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '412': { $ref: '#/components/responses/Problem' }
+  /customers/{id}/subscriptions:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    post:
+      tags: [ subscriptions ]
+      operationId: subscribe
+      description: Cancels the current ACTIVE subscription (RG-02) and resets entitlements (RG-03).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ plan_type ]
+              properties:
+                plan_type: { $ref: '#/components/schemas/PlanType' }
+      responses:
+        '201':
+          description: Subscribed
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubscriptionWithEntitlements' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [ subscriptions ]
+      operationId: listSubscriptions
+      responses:
+        '200':
+          description: Subscription history, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Subscription' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /customers/{id}/entitlements:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    get:
+      tags: [ entitlements ]
+      operationId: listEntitlements
+      responses:
+        '200':
+          description: Active entitlements
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Entitlement' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /customers/{id}/entitlements/consume:
+    parameters:
+      - $ref: '#/components/parameters/CustomerId'
+    post:
+      tags: [ entitlements ]
+      operationId: consumeEntitlement
+      description: Atomic, synchronous quota consumption (RG-04). For bulk metering use the usage.recorded.v1 topic.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ feature_key, amount ]
+              properties:
+                feature_key: { type: string, example: API_CALLS_MONTHLY }
+                amount: { type: integer, format: int64, minimum: 1 }
+      responses:
+        '200':
+          description: Consumed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConsumeResult' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '429':
+          description: QUOTA_EXCEEDED
+          headers:
+            Retry-After: { schema: { type: integer } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /health/live:
+    get:
+      tags: [ ops ]
+      operationId: live
+      responses: { '200': { description: Alive } }
+  /health/ready:
+    get:
+      tags: [ ops ]
+      operationId: ready
+      responses:
+        '200': { description: Postgres and Kafka reachable }
+        '503': { description: Not ready }
+components:
+  parameters:
+    CustomerId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string, maxLength: 100 }
+  responses:
+    Problem:
+      description: Error (RFC 9457)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    CustomerStatus: { type: string, enum: [ ACTIVE, SUSPENDED, DELETED ] }
+    PlanType: { type: string, enum: [ FREE_TIER, PRO, ENTERPRISE ] }
+    SubscriptionStatus: { type: string, enum: [ ACTIVE, CANCELED, EXPIRED ] }
+    CreateCustomer:
+      type: object
+      required: [ email ]
+      properties:
+        email: { type: string, format: email, maxLength: 255 }
+        company_name: { type: string, maxLength: 255 }
+    UpdateCustomer:
+      type: object
+      properties:
+        company_name: { type: string, maxLength: 255 }
+        status: { $ref: '#/components/schemas/CustomerStatus' }
+    Customer:
+      type: object
+      required: [ id, email, status, created_at, updated_at ]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        company_name: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/CustomerStatus' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    Subscription:
+      type: object
+      required: [ id, customer_id, plan_type, status, start_date ]
+      properties:
+        id: { type: string, format: uuid }
+        customer_id: { type: string, format: uuid }
+        plan_type: { $ref: '#/components/schemas/PlanType' }
+        status: { $ref: '#/components/schemas/SubscriptionStatus' }
+        start_date: { type: string, format: date-time }
+        end_date: { type: string, format: date-time, nullable: true }
+    SubscriptionWithEntitlements:
+      allOf:
+        - $ref: '#/components/schemas/Subscription'
+        - type: object
+          required: [ entitlements ]
+          properties:
+            entitlements:
+              type: array
+              items: { $ref: '#/components/schemas/Entitlement' }
+    Entitlement:
+      type: object
+      required: [ feature_key, allocated_quota, consumed_quota, reset_date ]
+      properties:
+        feature_key: { type: string }
+        allocated_quota: { type: integer, format: int64 }
+        consumed_quota: { type: integer, format: int64 }
+        reset_date: { type: string, format: date-time }
+    ConsumeResult:
+      type: object
+      required: [ feature_key, allocated_quota, consumed_quota, remaining_quota ]
+      properties:
+        feature_key: { type: string }
+        allocated_quota: { type: integer, format: int64 }
+        consumed_quota: { type: integer, format: int64 }
+        remaining_quota: { type: integer, format: int64 }
+    Problem:
+      type: object
+      required: [ type, title, status, code ]
+      properties:
+        type: { type: string, example: 'https://portfolio.dev/problems/quota-exceeded' }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string, example: QUOTA_EXCEEDED }
+        detail: { type: string }
+        trace_id: { type: string }

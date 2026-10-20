@@ -1,0 +1,6 @@
+[settings]
+lockfile = true
+
+[tools]
+java = "temurin-25"
+maven = "3.10.0"
