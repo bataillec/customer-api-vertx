@@ -6,7 +6,7 @@ import io.vertx.core.json.{DecodeException, JsonObject}
 import io.vertx.ext.web.RoutingContext
 
 object EventbusUtils {
-  private val TIMEOUT_IN_SEC = 10
+  private val TIMEOUT_IN_SEC = 30
 
   def getTimeout: Int = TIMEOUT_IN_SEC
 

@@ -25,7 +25,7 @@ object Constants {
 
   val HTTP_PORT               = "HTTP_PORT"
   val HTTP_PORT_DEFAULT_VALUE = 8080
-  val AUDIT_FILE_PATH = "AUDIT_FILE_PATH"
+  val AUDIT_FILE_PATH         = "AUDIT_FILE_PATH"
   val DEFAULT_AUDIT_FILE_PATH = "./audit.log"
 
   // endregion
@@ -84,15 +84,15 @@ object Constants {
 
   // endregion
 
-  val HEALTH_CHECK_TIMEOUT = 1000      // in milliseconds
+  val HEALTH_CHECK_TIMEOUT = 10000     // in milliseconds
   val BODY_LIMIT: Int      = 64 * 1024 // in bytes
 
   // region Eventbus addresses
 
   val CUSTOMER_ADDRESS        = "customer"
+  val AUDIT_ADDRESS           = "audit"
   val CUSTOMER_HEALTH_ADDRESS = s"$CUSTOMER_ADDRESS.health"
-  val AUDIT_HEALTH_ADDRESS    = "audit.health"
-  val AUDIT_ADDRESS = "audit"
+  val AUDIT_HEALTH_ADDRESS    = s"$AUDIT_ADDRESS.health"
 
   // endregion
 
