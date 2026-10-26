@@ -4,7 +4,7 @@ import io.vertx.core.{Future, VerticleBase}
 import io.vertx.pgclient.{PgBuilder, PgConnectOptions}
 import io.vertx.sqlclient.*
 import me.bataillec.portfolio.customer.config.CustomerConfig
-import me.bataillec.portfolio.customer.eventbus.CustomerHandler
+import me.bataillec.portfolio.customer.eventbus.{AuditSender, CustomerHandler}
 import org.flywaydb.core.Flyway
 import org.slf4j.LoggerFactory
 
@@ -32,7 +32,8 @@ class CustomerVerticle extends VerticleBase {
              )
              .using(vertx)
              .build()
-      _ <- new CustomerHandler(vertx).handle()
+      auditSender = new AuditSender(vertx)
+      _ <- new CustomerHandler(vertx, pool, auditSender).handle()
     } yield {
       logger.info("Customer verticle is running")
     }

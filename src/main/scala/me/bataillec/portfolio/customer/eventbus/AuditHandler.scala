@@ -7,6 +7,8 @@ import me.bataillec.portfolio.customer.audit.AuditOperation
 import me.bataillec.portfolio.customer.config.AuditConfig
 import org.slf4j.LoggerFactory
 
+import scala.util.{Failure, Success, Try}
+
 class AuditHandler(vertx: Vertx, conf: AuditConfig) {
   private val logger     = LoggerFactory.getLogger(getClass)
   private val operations = new AuditOperation(conf)
@@ -20,9 +22,11 @@ class AuditHandler(vertx: Vertx, conf: AuditConfig) {
                AUDIT_ADDRESS,
                (msg: Message[String]) =>
                  logger.info("An audit message has been received")
-                 operations.audit(msg.body())
-                 msg.reply("ACK")
-                 ()
+                 Try(operations.audit(msg.body())) match {
+                   case Success(_)         => ()
+                   case Failure(exception) =>
+                     logger.error("Failed to write the audit event: {}", msg.body(), exception)
+                 }
              )
              .completion()
     } yield ()

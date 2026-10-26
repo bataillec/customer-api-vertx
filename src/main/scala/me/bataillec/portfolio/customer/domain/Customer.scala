@@ -1,8 +1,29 @@
 package me.bataillec.portfolio.customer.domain
 
-import me.bataillec.portfolio.customer.http.{HttpResponse, WithHttpResponse}
+import io.vertx.sqlclient.Row
+import me.bataillec.portfolio.customer.http.WithHttpResponse
 
-case class Customer() extends WithHttpResponse {
+import java.time.Instant
+import java.util.UUID
 
-  override def toHttpResponse(statusCode: Int, contentType: String, headers: Map[String, String]): HttpResponse = ???
+final case class Customer(
+    id: UUID,
+    email: String,
+    companyName: Option[String],
+    status: CustomerStatus,
+    createdAt: Instant,
+    updatedAt: Instant
+) extends WithHttpResponse
+
+object Customer {
+  def fromRow(r: Row): Customer = {
+    Customer(
+      id = r.getUUID("id"),
+      email = r.getString("email"),
+      companyName = Option(r.getString("company_name")),
+      status = CustomerStatus.valueOf(r.getString("status")),
+      createdAt = r.getOffsetDateTime("created_at").toInstant,
+      updatedAt = r.getOffsetDateTime("updated_at").toInstant
+    )
+  }
 }

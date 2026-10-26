@@ -1,19 +1,20 @@
 package me.bataillec.portfolio.customer.eventbus
 
 import io.vertx.core.eventbus.Message
-import io.vertx.core.json.Json
 import io.vertx.core.{Future, Vertx}
+import io.vertx.sqlclient.Pool
 import me.bataillec.portfolio.customer.Constants.*
 import me.bataillec.portfolio.customer.customer.CustomerOperations
 import me.bataillec.portfolio.customer.domain.*
 import me.bataillec.portfolio.customer.http.HttpResponse
+import me.bataillec.portfolio.customer.json.JsonSupport
 import org.slf4j.LoggerFactory
 
 import scala.util.{Failure, Success, Try}
 
-class CustomerHandler(vertx: Vertx) {
+class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
   private val logger     = LoggerFactory.getLogger(getClass)
-  private val operations = new CustomerOperations()
+  private val operations = new CustomerOperations(pool, auditSender)
 
   def handle(): Future[Unit] = {
     for {
@@ -42,7 +43,7 @@ class CustomerHandler(vertx: Vertx) {
     Try {
       maybeOperationId match {
         case Some(value) if value == createCustomer_ID =>
-          val newCustomer         = Json.decodeValue(msg.body(), classOf[NewCustomer])
+          val newCustomer         = JsonSupport.decode(msg.body(), classOf[CreateCustomer])
           val maybeIdempotencyKey = Option(msg.headers().get(IDEMPOTENCY_KEY_HEADER))
           operations.createCustomer(newCustomer, maybeIdempotencyKey).map((r: Customer) => r.toHttpResponse(statusCode = 201))
 
@@ -64,7 +65,7 @@ class CustomerHandler(vertx: Vertx) {
     } match {
       case Failure(exception) =>
         logger.error("An unexpected error occurred...", exception)
-        msg.fail(500, Json.encode(exception))
+        msg.fail(500, exception.toString)
       case Success(value)     =>
         value
           .map((v: HttpResponse) => msg.reply(v.toJson.encode()))

@@ -85,6 +85,11 @@
         </dependency>
 
         <dependency>
+            <groupId>tools.jackson.module</groupId>
+            <artifactId>jackson-module-scala_3</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <version>${logback.version}</version>

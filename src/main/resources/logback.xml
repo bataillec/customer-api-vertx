@@ -1,11 +1,19 @@
 <configuration>
+    <variable name="ROOT_LOG_LEVEL" value="${ROOT_LOG_LEVEL:-INFO}"/>
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>%d{HH:mm:ss.SSS} %-5level [%thread] %logger{20} - %msg%n</pattern>
         </encoder>
     </appender>
+    <logger name="com.hazelcast" level="ERROR">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+    <!-- display cluster's members in logs -->
+    <logger name="com.hazelcast.internal.cluster.ClusterService" level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </logger>
     <logger name="io.netty" level="WARN"/>
-    <root level="INFO">
+    <root level="${ROOT_LOG_LEVEL}">
         <appender-ref ref="STDOUT"/>
     </root>
 </configuration>
