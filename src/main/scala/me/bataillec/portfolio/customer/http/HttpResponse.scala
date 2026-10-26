@@ -10,7 +10,18 @@ case class HttpResponse(
     body: String = DEFAULT_BODY,
     contentType: String = DEFAULT_CONTENT_TYPE,
     headers: Map[String, String] = Map.empty
-)
+) {
+  def toJson: JsonObject = {
+    val json        = new JsonObject()
+    val headersJson = new JsonObject()
+    headers.foreach((k, v) => headersJson.put(k, v))
+    json
+      .put(STATUS_CODE_FIELD, statusCode)
+      .put(CONTENT_TYPE_FIELD, contentType)
+      .put(BODY_FIELD, if (body.isEmpty) JsonObject() else Json.decodeValue(body))
+      .put(HEADERS_FIELD, headersJson)
+  }
+}
 
 object HttpResponse {
   def fromJsonString(s: String): HttpResponse = {
