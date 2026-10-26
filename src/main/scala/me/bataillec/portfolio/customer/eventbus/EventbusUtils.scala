@@ -8,12 +8,12 @@ import io.vertx.ext.web.RoutingContext
 object EventbusUtils {
   private val TIMEOUT_IN_SEC = 30
 
-  def getTimeout: Int = TIMEOUT_IN_SEC
+  def getTimeoutInMilliseconds: Int = TIMEOUT_IN_SEC * 1000
 
   implicit class MyEventBus(val eb: EventBus) {
 
     def sendFuture[T](address: String, message: scala.Option[AnyRef], options: DeliveryOptions): Future[Message[T]] = {
-      eb.request[T](address, message.orNull, options.setSendTimeout(TIMEOUT_IN_SEC * 1000))
+      eb.request[T](address, message.orNull, options.setSendTimeout(getTimeoutInMilliseconds))
     }
   }
 

@@ -84,8 +84,10 @@ object Constants {
 
   // endregion
 
-  val HEALTH_CHECK_TIMEOUT = 10000     // in milliseconds
-  val BODY_LIMIT: Int      = 64 * 1024 // in bytes
+  val HEALTH_CHECK_TIMEOUT    = 10000     // HealthChecks procedure
+  val HEALTH_PING_TIMEOUT_MS  = 4000      // http -> customer/audit
+  val HEALTH_AUDIT_TIMEOUT_MS = 2000      // customer -> audit
+  val BODY_LIMIT: Int         = 64 * 1024 // in bytes
 
   // region Eventbus addresses
 
@@ -100,7 +102,7 @@ object Constants {
   val CUSTOMER_VERTICLE   = "customer-verticle"
   val AUDIT_VERTICLE      = "audit-verticle"
 
-  // region Routes IDs
+  // region Route / Operation IDs
 
   val createCustomer_ID     = "createCustomer"
   val listSubscriptions_ID  = "listSubscriptions"
