@@ -1,7 +1,8 @@
 package me.bataillec.portfolio.customer.customer
 
 import io.vertx.core.Future
-import io.vertx.sqlclient.{Pool, Tuple}
+import io.vertx.pgclient.PgException
+import io.vertx.sqlclient.{Pool, SqlClient, Tuple}
 import me.bataillec.portfolio.customer.domain.*
 
 import java.time.{Instant, ZoneOffset}
@@ -22,9 +23,10 @@ class Storage(pool: Pool) {
           |""".stripMargin
       )
       .execute(Tuple.of(customer.email, customer.companyName.orNull))
-      .map(rows => Customer.fromRow(rows.iterator().next()))
-      .recover { case e =>
-        Future.failedFuture(e)
+      .map(r => Customer.fromRow(r.asScala.head))
+      .recover {
+        case e: PgException if e.getSqlState == "23505" => Future.failedFuture(DomainError.EmailAlreadyUsed(customer.email))
+        case e                                          => Future.failedFuture(e)
       }
   }
 
@@ -51,9 +53,39 @@ class Storage(pool: Pool) {
           | ORDER BY created_at DESC, id DESC
           | LIMIT $3""".stripMargin
       )
-      .execute(
-        parameters
-      )
+      .execute(parameters)
       .map(rows => rows.asScala.map(Customer.fromRow).toList)
+  }
+
+  def findCustomer(id: UUID): Future[Option[Customer]] = {
+    pool
+      .preparedQuery(
+        """ SELECT *
+          | FROM customers
+          | WHERE id = $1
+          |""".stripMargin
+      )
+      .execute(Tuple.of(id))
+      .map(_.asScala.headOption.map(Customer.fromRow))
+  }
+
+  def lockCustomerForUpdate(tx: SqlClient, customerId: UUID): Future[Boolean] = {
+    tx
+      .preparedQuery("""SELECT id FROm customers WHERE id = $1 FOR UPDATE""")
+      .execute(Tuple.of(customerId))
+      .map(_.asScala.headOption.isDefined)
+  }
+
+  def updateCustomer(tx: SqlClient, customerId: UUID, updateCustomer: UpdateCustomer): Future[Customer] = {
+    tx
+      .preparedQuery(""" UPDATE customers
+          | SET company_name = COALESCE($2, company_name),
+          |     status = COALESCE($3::customer_status, status),
+          |     updated_at = CURRENT_TIMESTAMP
+          | WHERE id = $1
+          | RETURNING *
+          |""".stripMargin)
+      .execute(Tuple.of(customerId, updateCustomer.companyName.orNull, updateCustomer.status.map(_.toString).orNull))
+      .map(r => Customer.fromRow(r.asScala.head))
   }
 }

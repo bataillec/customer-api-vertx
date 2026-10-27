@@ -1,9 +1,14 @@
 package me.bataillec.portfolio.customer.domain
 
+import me.bataillec.portfolio.customer.http.WithHttpResponse
+
 import java.util.UUID
 import scala.util.control.NoStackTrace
 
-sealed abstract class DomainError(message: String, val status: Int, val code: String, val title: String) extends Exception(message) with NoStackTrace
+sealed abstract class DomainError(message: String, val status: Int, val code: String, val title: String)
+    extends Exception(message)
+    with NoStackTrace
+    with WithHttpResponse
 
 object DomainError {
   final case class UnknownError(msg: String) extends DomainError(s"Unknown error occurred: $msg", 500, "UNKOWN_ERROR", "Unkown error")

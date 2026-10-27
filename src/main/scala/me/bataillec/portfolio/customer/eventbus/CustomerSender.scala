@@ -41,7 +41,7 @@ class CustomerSender(eventbus: EventBus) {
 
   def updateCustomer(rc: RoutingContext): Future[String] = {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, updateCustomer_ID)
-    val data            = getBodyAsJson(rc)
+    val data            = getBodyAsJson(rc).encode()
     addHeaderParam(deliveryOptions, rc, IF_MATCH_HEADER)
     addPathParam(deliveryOptions, rc, ID_PATH_PARAM)
 
