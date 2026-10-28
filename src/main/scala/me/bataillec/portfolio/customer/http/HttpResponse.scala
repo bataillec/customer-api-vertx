@@ -5,7 +5,7 @@ import me.bataillec.portfolio.customer.Constants.*
 
 import scala.jdk.CollectionConverters.*
 
-case class HttpResponse(
+final case class HttpResponse(
     statusCode: Int,
     body: String = DEFAULT_BODY,
     contentType: String = DEFAULT_CONTENT_TYPE,

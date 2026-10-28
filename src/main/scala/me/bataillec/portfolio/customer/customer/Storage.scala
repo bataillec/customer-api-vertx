@@ -88,4 +88,119 @@ class Storage(pool: Pool) {
       .execute(Tuple.of(customerId, updateCustomer.companyName.orNull, updateCustomer.status.map(_.toString).orNull))
       .map(r => Customer.fromRow(r.asScala.head))
   }
+
+  def cancelActiveSubscription(tx: SqlClient, customerId: UUID): Future[Unit] = {
+    tx
+      .preparedQuery(
+        """ UPDATE subscriptions
+          | SET status = 'CANCELED', end_date = now()
+          | WHERE customer_id = $1 AND status = 'ACTIVE'
+          |""".stripMargin
+      )
+      .execute(Tuple.of(customerId))
+      .mapEmpty()
+  }
+
+  def insertActiveSubscription(tx: SqlClient, customerId: UUID, createSubscription: CreateSubscription): Future[Subscription] = {
+    tx
+      .preparedQuery(""" INSERT INTO subscriptions (customer_id, plan_type)
+          | VALUES ($1, $2::plan_type)
+          | RETURNING *
+          |""".stripMargin)
+      .execute(Tuple.of(customerId, createSubscription.planType.toString))
+      .map(r => Subscription.fromRow(r.asScala.head))
+  }
+
+  def resetForPlan(tx: SqlClient, customerId: UUID, createSubscription: CreateSubscription, now: Instant): Future[List[Entitlement]] = {
+    val resetAt = PlanQuotas.nextResetDate(now).atOffset(ZoneOffset.UTC)
+    val upserts = PlanQuotas.forPlan(createSubscription.planType).toList.sortBy(_._1).map { (feature, quota) =>
+      tx
+        .preparedQuery(
+          """ INSERT INTO entitlements (customer_id, feature_key, allocated_quota, consumed_quota, reset_date)
+            | VALUES ($1, $2, $3, 0, $4)
+            | ON CONFLICT (customer_id, feature_key)
+            | DO UPDATE
+            | SET allocated_quota = EXCLUDED.allocated_quota, consumed_quota = 0, reset_date = EXCLUDED.reset_date
+            | RETURNING feature_key, allocated_quota, consumed_quota, reset_date
+            | """.stripMargin
+        )
+        .execute(
+          Tuple.of(
+            customerId,
+            feature,
+            quota,
+            resetAt
+          )
+        )
+        .map(r => Entitlement.fromRow(r.asScala.head))
+    }
+    upserts
+      .foldLeft(Future.succeededFuture(List.empty[Entitlement])) { (acc, next) =>
+        acc.compose(done => next.map(e => done :+ e))
+      }
+  }
+
+  def listSubscriptions(tx: SqlClient, customerId: UUID): Future[List[Subscription]] = {
+    tx
+      .preparedQuery(
+        """ SELECT *
+          | FROM subscriptions
+          | WHERE customer_id = $1
+          | ORDER BY start_date DESC, id
+          | """.stripMargin
+      )
+      .execute(Tuple.of(customerId))
+      .map(r => r.asScala.map(Subscription.fromRow).toList)
+  }
+
+  def listEntitlements(tx: SqlClient, customerId: UUID): Future[List[Entitlement]] = {
+    tx
+      .preparedQuery(
+        """ SELECT feature_key, allocated_quota, consumed_quota, reset_date
+          | FROM entitlements
+          | WHERE customer_id = $1
+          | ORDER BY feature_key
+          | """.stripMargin
+      )
+      .execute(Tuple.of(customerId))
+      .map(r => r.asScala.map(Entitlement.fromRow).toList)
+  }
+
+  def findEntitlement(tx: SqlClient, customerId: UUID, featureKey: String): Future[Option[Entitlement]] = {
+    tx
+      .preparedQuery(
+        """ SELECT feature_key, allocated_quota, consumed_quota, reset_date
+          | FROM entitlements
+          | WHERE customer_id = $1 AND feature_key = $2
+          |""".stripMargin
+      )
+      .execute(
+        Tuple.of(
+          customerId,
+          featureKey
+        )
+      )
+      .map(_.asScala.headOption.map(Entitlement.fromRow))
+  }
+
+  def consume(tx: SqlClient, customerId: UUID, consumption: Consumption): Future[Option[ConsumeResult]] = {
+    tx
+      .preparedQuery(
+        """ UPDATE entitlements
+          | SET consumed_quota = consumed_quota + $3
+          | WHERE customer_id = $1
+          | AND feature_key = $2
+          | AND consumed_quota + $3 <= allocated_quota
+          | RETURNING feature_key, allocated_quota, consumed_quota
+          |""".stripMargin
+      )
+      .execute(
+        Tuple.of(
+          customerId,
+          consumption.featureKey,
+          consumption.amount
+        )
+      )
+      .map(_.asScala.headOption.map(ConsumeResult.fromRow))
+  }
 }

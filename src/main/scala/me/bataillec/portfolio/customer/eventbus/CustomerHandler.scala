@@ -1,6 +1,7 @@
 package me.bataillec.portfolio.customer.eventbus
 
 import io.vertx.core.eventbus.Message
+import io.vertx.core.json.JsonArray
 import io.vertx.core.{Future, Vertx}
 import io.vertx.sqlclient.Pool
 import me.bataillec.portfolio.customer.Constants.*
@@ -45,7 +46,7 @@ class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
       maybeOperationId match {
         case Some(value) if value == createCustomer_ID =>
           val newCustomer         = JsonSupport.decode(msg.body(), classOf[CreateCustomer])
-          val maybeIdempotencyKey = Option(msg.headers().get(IDEMPOTENCY_KEY_HEADER))
+          val maybeIdempotencyKey = Option(msg.headers().get(IDEMPOTENCY_KEY_HEADER)) // TODO Use the Idempotency key
           operations
             .createCustomer(newCustomer, maybeIdempotencyKey)
             .map((r: Customer) => r.toHttpResponse(statusCode = 201, headers = Map("Location" -> s"/customers/${r.id}")))
@@ -65,20 +66,53 @@ class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
             .map((r: Customer) => r.toHttpResponse())
 
         case Some(value) if value == updateCustomer_ID =>
-          val ifMatch        = msg.headers().get(IF_MATCH_HEADER)
+          val ifMatch        = msg.headers().get(IF_MATCH_HEADER) // TODO Use the If-Match key
           val customerId     = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
           val updateCustomer = JsonSupport.decode(msg.body(), classOf[UpdateCustomer])
           operations
             .updateCustomer(customerId, updateCustomer)
             .map((r: Customer) => r.toHttpResponse())
 
-        case Some(value) if value == subscribe_ID         => ???
-        case Some(value) if value == listSubscriptions_ID => ???
-        case Some(value) if value == listEntitlements_ID  => ???
+        case Some(value) if value == subscribe_ID =>
+          val customerId          = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
+          val maybeIdempotencyKey = Option(msg.headers().get(IDEMPOTENCY_KEY_HEADER)) // TODO Use the Idempotency key
+          val subscription        = JsonSupport.decode(msg.body(), classOf[CreateSubscription])
+          operations
+            .createSubscription(customerId, subscription)
+            .map((r: SubscriptionWithEntitlements) =>
+              r.toHttpResponse(statusCode = 201, headers = Map("Location" -> s"/customers/${r.customerId}/subscriptions"))
+            )
 
-        case Some(value) if value == consumeEntitlement_ID => ???
-        case Some(_)                                       => ???
-        case None                                          => ???
+        case Some(value) if value == listSubscriptions_ID =>
+          val customerId = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
+          operations.listSubscriptions(customerId).map { (r: List[Subscription]) =>
+            val subscriptionsJson = r.map(_.toHttpResponse().body)
+            HttpResponse(
+              statusCode = 200,
+              body = JsonSupport.encode(JsonArray.of(subscriptionsJson))
+            )
+          }
+
+        case Some(value) if value == listEntitlements_ID =>
+          val customerId = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
+          operations
+            .listEntitlements(customerId)
+            .map((r: List[Entitlement]) =>
+              val entitlementsJson = r.map(_.toHttpResponse().body)
+              HttpResponse(
+                statusCode = 200,
+                body = JsonSupport.encode(JsonArray.of(entitlementsJson))
+              )
+            )
+
+        case Some(value) if value == consumeEntitlement_ID =>
+          val maybeIdempotencyKey = Option(msg.headers().get(IDEMPOTENCY_KEY_HEADER)) // TODO Use the Idempotency key
+          val customerId          = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
+          val consumption         = JsonSupport.decode(msg.body(), classOf[Consumption])
+          operations.consumeEntitlement(customerId, consumption).map((r: ConsumeResult) => r.toHttpResponse())
+
+        case Some(value) => throw new Exception(s"Unknown OperationId $value")
+        case None        => throw new Exception("No OperationId found")
       }
     } match {
       case Failure(exception) =>

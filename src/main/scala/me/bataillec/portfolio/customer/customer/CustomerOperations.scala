@@ -8,7 +8,7 @@ import me.bataillec.portfolio.customer.eventbus.AuditSender
 import org.slf4j.LoggerFactory
 
 import java.nio.charset.StandardCharsets.UTF_8
-import java.time.Instant
+import java.time.{Duration, Instant}
 import java.util.{Base64, UUID}
 import scala.util.{Failure, Success, Try}
 
@@ -57,6 +57,75 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
           Future.failedFuture(CustomerNotFound(customerId))
         } else {
           storage.updateCustomer(tx, customerId, updateCustomer)
+        }
+      }
+    }
+  }
+
+  def createSubscription(customerId: UUID, createSubscription: CreateSubscription): Future[SubscriptionWithEntitlements] = {
+    logger.debug("Creating a new subscription for the customer id = {} and subscription = {}", customerId, createSubscription)
+    pool.withTransaction { tx =>
+      storage.lockCustomerForUpdate(tx, customerId).compose { exist =>
+        if (!exist) {
+          Future.failedFuture(CustomerNotFound(customerId))
+        } else {
+          for {
+            _            <- storage.cancelActiveSubscription(tx, customerId)
+            subscription <- storage.insertActiveSubscription(tx, customerId, createSubscription)
+            entitlements <- storage.resetForPlan(tx, customerId, createSubscription, Instant.now())
+          } yield {
+            auditSender.send("SUBSCRIPTION_CHANGED", customerId, "plan_type" -> createSubscription.planType.toString)
+            SubscriptionWithEntitlements.fromSubscriptionAndEntitlements(subscription, entitlements)
+          }
+        }
+      }
+    }
+  }
+
+  def listSubscriptions(customerId: UUID): Future[List[Subscription]] = {
+    logger.debug("Listing the subscriptions for customer with id = {}", customerId)
+    pool.withTransaction { tx =>
+      storage.lockCustomerForUpdate(tx, customerId).compose { exist =>
+        if (!exist) {
+          Future.failedFuture(CustomerNotFound(customerId))
+        } else {
+          storage.listSubscriptions(tx, customerId)
+        }
+      }
+    }
+  }
+
+  def listEntitlements(customerId: UUID): Future[List[Entitlement]] = {
+    logger.debug("Listing entitlements for customer with id = {}", customerId)
+    pool.withTransaction { tx =>
+      storage.lockCustomerForUpdate(tx, customerId).compose { exist =>
+        if (!exist) {
+          Future.failedFuture(CustomerNotFound(customerId))
+        } else {
+          storage.listEntitlements(tx, customerId)
+        }
+      }
+    }
+  }
+
+  def consumeEntitlement(customerId: UUID, consumption: Consumption): Future[ConsumeResult] = {
+    logger.debug("Consuming for customer with id = {}, consumption = {}", customerId, consumption)
+    pool.withTransaction { tx =>
+      storage.lockCustomerForUpdate(tx, customerId).compose { exist =>
+        if (!exist) {
+          Future.failedFuture(CustomerNotFound(customerId))
+        } else {
+          storage.findEntitlement(tx, customerId, consumption.featureKey).compose {
+            case None              => Future.failedFuture(EntitlementNotFound(customerId, consumption.featureKey))
+            case Some(entitlement) =>
+              storage.consume(tx, customerId, consumption).compose {
+                case Some(result) => Future.succeededFuture(result)
+                case None         =>
+                  auditSender.send("QUOTA_EXCEEDED", customerId, "feature_key" -> consumption.featureKey)
+                  val retryAfter = Duration.between(Instant.now(), entitlement.resetDate).getSeconds.max(1L)
+                  Future.failedFuture(QuotaExceeded(consumption.featureKey, retryAfter))
+              }
+          }
         }
       }
     }
