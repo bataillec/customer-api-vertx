@@ -17,7 +17,7 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
-  def createCustomer(createCustomer: CreateCustomer, maybeIdempotencyKey: Option[String]): Future[Customer] = {
+  def createCustomer(createCustomer: CreateCustomer): Future[Customer] = {
     logger.debug("Creating a new customer: {}", createCustomer)
     for {
       c <- storage.insertCustomer(createCustomer)

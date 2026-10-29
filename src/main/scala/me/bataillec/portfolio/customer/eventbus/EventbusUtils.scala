@@ -31,19 +31,6 @@ object EventbusUtils {
     deliveryOptions.addHeader(name, param)
   }
 
-  def addHeaderParam(deliveryOptions: DeliveryOptions, rc: RoutingContext, name: String): DeliveryOptions = {
-    val header = Option(rc.request().headers().get(name)).getOrElse(throw new Exception(s"The header param '$name' is not found in the request"))
-    deliveryOptions.addHeader(name, header)
-  }
-
-  def addOptionalHeaderParam(deliveryOptions: DeliveryOptions, rc: RoutingContext, name: String, defaultValue: Option[String] = None): DeliveryOptions = {
-    (Option(rc.request().headers().get(name)), defaultValue) match {
-      case (Some(value), _)    => deliveryOptions.addHeader(name, value)
-      case (None, Some(value)) => deliveryOptions.addHeader(name, value)
-      case _                   => deliveryOptions
-    }
-  }
-
   def addQueryParam(deliveryOptions: DeliveryOptions, rc: RoutingContext, name: String): DeliveryOptions = {
     val param = Option(rc.request.getParam(name)).getOrElse(throw Exception(s"The query param '$name' is not found in the request'"))
     deliveryOptions.addHeader(name, param)

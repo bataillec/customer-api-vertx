@@ -11,9 +11,7 @@ object Constants {
   val DEFAULT_STATUS_CODE  = 200
   val LIMIT_DEFAULT_VALUE  = "50"
 
-  val RETRY_AFTER_HEADER     = "Retry-After"
-  val IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
-  val IF_MATCH_HEADER        = "If-Match"
+  val RETRY_AFTER_HEADER = "Retry-After"
 
   val ID_PATH_PARAM = "id"
 

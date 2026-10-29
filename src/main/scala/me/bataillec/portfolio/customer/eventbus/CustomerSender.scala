@@ -10,7 +10,6 @@ class CustomerSender(eventbus: EventBus) {
   def createCustomer(rc: RoutingContext): Future[String] = {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, createCustomer_ID)
     val data            = getBodyAsJson(rc).encode()
-    addOptionalHeaderParam(deliveryOptions, rc, IDEMPOTENCY_KEY_HEADER)
 
     eventbus.sendFuture[String](CUSTOMER_ADDRESS, Some(data), deliveryOptions).map { (r: Message[String]) =>
       r.body()
@@ -42,7 +41,6 @@ class CustomerSender(eventbus: EventBus) {
   def updateCustomer(rc: RoutingContext): Future[String] = {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, updateCustomer_ID)
     val data            = getBodyAsJson(rc).encode()
-    addHeaderParam(deliveryOptions, rc, IF_MATCH_HEADER)
     addPathParam(deliveryOptions, rc, ID_PATH_PARAM)
 
     eventbus.sendFuture[String](CUSTOMER_ADDRESS, Some(data), deliveryOptions).map { (r: Message[String]) =>
@@ -52,7 +50,6 @@ class CustomerSender(eventbus: EventBus) {
 
   def subscribe(rc: RoutingContext): Future[String] = {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, subscribe_ID)
-    addOptionalHeaderParam(deliveryOptions, rc, IDEMPOTENCY_KEY_HEADER)
     addPathParam(deliveryOptions, rc, ID_PATH_PARAM)
     val data            = getBodyAsJson(rc).encode()
 
@@ -83,7 +80,6 @@ class CustomerSender(eventbus: EventBus) {
 
   def consumeEntitlement(rc: RoutingContext): Future[String] = {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, consumeEntitlement_ID)
-    addOptionalHeaderParam(deliveryOptions, rc, IDEMPOTENCY_KEY_HEADER)
     addPathParam(deliveryOptions, rc, ID_PATH_PARAM)
     val data            = getBodyAsJson(rc).encode()
 

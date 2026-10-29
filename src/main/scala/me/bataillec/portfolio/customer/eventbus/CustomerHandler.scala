@@ -44,10 +44,9 @@ class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
     Try {
       maybeOperationId match {
         case Some(value) if value == createCustomer_ID =>
-          val newCustomer         = JsonSupport.decode(msg.body(), classOf[CreateCustomer])
-          val maybeIdempotencyKey = Option(msg.headers().get(IDEMPOTENCY_KEY_HEADER)) // TODO Use the Idempotency key
+          val newCustomer = JsonSupport.decode(msg.body(), classOf[CreateCustomer])
           operations
-            .createCustomer(newCustomer, maybeIdempotencyKey)
+            .createCustomer(newCustomer)
             .map((r: Customer) => r.toHttpResponse(statusCode = 201, headers = Map("Location" -> s"/customers/${r.id}")))
 
         case Some(value) if value == listCustomers_ID =>
@@ -65,7 +64,6 @@ class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
             .map((r: Customer) => r.toHttpResponse())
 
         case Some(value) if value == updateCustomer_ID =>
-          val ifMatch        = msg.headers().get(IF_MATCH_HEADER) // TODO Use the If-Match key
           val customerId     = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
           val updateCustomer = JsonSupport.decode(msg.body(), classOf[UpdateCustomer])
           operations
@@ -73,9 +71,8 @@ class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
             .map((r: Customer) => r.toHttpResponse())
 
         case Some(value) if value == subscribe_ID =>
-          val customerId          = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
-          val maybeIdempotencyKey = Option(msg.headers().get(IDEMPOTENCY_KEY_HEADER)) // TODO Use the Idempotency key
-          val subscription        = JsonSupport.decode(msg.body(), classOf[CreateSubscription])
+          val customerId   = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
+          val subscription = JsonSupport.decode(msg.body(), classOf[CreateSubscription])
           operations
             .createSubscription(customerId, subscription)
             .map((r: SubscriptionWithEntitlements) =>
@@ -103,9 +100,8 @@ class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
             )
 
         case Some(value) if value == consumeEntitlement_ID =>
-          val maybeIdempotencyKey = Option(msg.headers().get(IDEMPOTENCY_KEY_HEADER)) // TODO Use the Idempotency key
-          val customerId          = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
-          val consumption         = JsonSupport.decode(msg.body(), classOf[Consumption])
+          val customerId  = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
+          val consumption = JsonSupport.decode(msg.body(), classOf[Consumption])
           operations.consumeEntitlement(customerId, consumption).map((r: ConsumeResult) => r.toHttpResponse())
 
         case Some(value) => throw new Exception(s"Unknown OperationId $value")
