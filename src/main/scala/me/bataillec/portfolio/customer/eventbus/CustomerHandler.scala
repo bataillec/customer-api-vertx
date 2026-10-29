@@ -1,7 +1,6 @@
 package me.bataillec.portfolio.customer.eventbus
 
 import io.vertx.core.eventbus.Message
-import io.vertx.core.json.JsonArray
 import io.vertx.core.{Future, Vertx}
 import io.vertx.sqlclient.Pool
 import me.bataillec.portfolio.customer.Constants.*
@@ -86,10 +85,9 @@ class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
         case Some(value) if value == listSubscriptions_ID =>
           val customerId = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
           operations.listSubscriptions(customerId).map { (r: List[Subscription]) =>
-            val subscriptionsJson = r.map(_.toHttpResponse().body)
             HttpResponse(
               statusCode = 200,
-              body = JsonSupport.encode(JsonArray.of(subscriptionsJson))
+              body = JsonSupport.encode(r)
             )
           }
 
@@ -98,10 +96,9 @@ class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
           operations
             .listEntitlements(customerId)
             .map((r: List[Entitlement]) =>
-              val entitlementsJson = r.map(_.toHttpResponse().body)
               HttpResponse(
                 statusCode = 200,
-                body = JsonSupport.encode(JsonArray.of(entitlementsJson))
+                body = JsonSupport.encode(r)
               )
             )
 

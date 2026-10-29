@@ -140,8 +140,8 @@ class Storage(pool: Pool) {
       }
   }
 
-  def listSubscriptions(tx: SqlClient, customerId: UUID): Future[List[Subscription]] = {
-    tx
+  def listSubscriptions(customerId: UUID): Future[List[Subscription]] = {
+    pool
       .preparedQuery(
         """ SELECT *
           | FROM subscriptions
@@ -153,8 +153,8 @@ class Storage(pool: Pool) {
       .map(r => r.asScala.map(Subscription.fromRow).toList)
   }
 
-  def listEntitlements(tx: SqlClient, customerId: UUID): Future[List[Entitlement]] = {
-    tx
+  def listEntitlements(customerId: UUID): Future[List[Entitlement]] = {
+    pool
       .preparedQuery(
         """ SELECT feature_key, allocated_quota, consumed_quota, reset_date
           | FROM entitlements

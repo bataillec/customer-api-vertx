@@ -56,7 +56,17 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
         if (!exist) {
           Future.failedFuture(CustomerNotFound(customerId))
         } else {
-          storage.updateCustomer(tx, customerId, updateCustomer)
+          storage
+            .updateCustomer(tx, customerId, updateCustomer)
+            .compose(r =>
+              auditSender.send(
+                "CUSTOMER_UPDATED",
+                customerId,
+                "company_name" -> updateCustomer.companyName.getOrElse("-"),
+                "status"       -> updateCustomer.status.map(_.toString).getOrElse("-")
+              )
+              Future.succeededFuture(r)
+            )
         }
       }
     }
@@ -84,27 +94,17 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
 
   def listSubscriptions(customerId: UUID): Future[List[Subscription]] = {
     logger.debug("Listing the subscriptions for customer with id = {}", customerId)
-    pool.withTransaction { tx =>
-      storage.lockCustomerForUpdate(tx, customerId).compose { exist =>
-        if (!exist) {
-          Future.failedFuture(CustomerNotFound(customerId))
-        } else {
-          storage.listSubscriptions(tx, customerId)
-        }
-      }
+    storage.findCustomer(customerId).compose {
+      case None    => Future.failedFuture(CustomerNotFound(customerId))
+      case Some(_) => storage.listSubscriptions(customerId)
     }
   }
 
   def listEntitlements(customerId: UUID): Future[List[Entitlement]] = {
     logger.debug("Listing entitlements for customer with id = {}", customerId)
-    pool.withTransaction { tx =>
-      storage.lockCustomerForUpdate(tx, customerId).compose { exist =>
-        if (!exist) {
-          Future.failedFuture(CustomerNotFound(customerId))
-        } else {
-          storage.listEntitlements(tx, customerId)
-        }
-      }
+    storage.findCustomer(customerId).compose {
+      case None    => Future.failedFuture(CustomerNotFound(customerId))
+      case Some(_) => storage.listEntitlements(customerId)
     }
   }
 
