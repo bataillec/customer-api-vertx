@@ -45,9 +45,9 @@ object Problem {
               case (false, false) => Some(UnknownError(FEATURE_KEY_AND_RETRY_AFTER_SECONDS_NOT_FOUND))
             }
           case ENTITLEMENT_NOT_FOUND =>
-            (body.containsKey(ID_FIELD), body.containsKey(FEATURE_KEY_FIELD)) match {
+            (body.containsKey(CUSTOMER_ID_FIELD), body.containsKey(FEATURE_KEY_FIELD)) match {
               case (true, true)   =>
-                Try(UUID.fromString(body.getString(ID_FIELD))) match {
+                Try(UUID.fromString(body.getString(CUSTOMER_ID_FIELD))) match {
                   case Failure(exception) => Some(UnknownError(MALFORMED_UUID))
                   case Success(value)     => Some(EntitlementNotFound(value, body.getString(FEATURE_KEY_FIELD)))
                 }
