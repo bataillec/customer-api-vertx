@@ -1,5 +1,6 @@
 package me.bataillec.portfolio.customer.json
 
+import com.fasterxml.jackson.annotation.JsonInclude
 import tools.jackson.databind.PropertyNamingStrategies
 import tools.jackson.databind.cfg.DateTimeFeature
 import tools.jackson.databind.json.JsonMapper
@@ -13,6 +14,8 @@ object JsonSupport {
     .addModule(DefaultScalaModule)
     .propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)
     .disable(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS)
+    // NON_ABSENT omits both null and None (NON_NULL would still write "field": null for None)
+    .changeDefaultPropertyInclusion(_.withValueInclusion(JsonInclude.Include.NON_ABSENT))
     .build()
 
   def decode[T](json: String, clazz: Class[T]): T = mapper.readValue(json, clazz)

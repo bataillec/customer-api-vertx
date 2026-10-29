@@ -7,6 +7,7 @@ import me.bataillec.portfolio.customer.domain.*
 
 import java.time.{Instant, ZoneOffset}
 import java.util.UUID
+import scala.collection.immutable.ListMap
 import scala.jdk.CollectionConverters.*
 
 class Storage(pool: Pool) {
@@ -111,9 +112,47 @@ class Storage(pool: Pool) {
       .map(r => Subscription.fromRow(r.asScala.head))
   }
 
-  def resetForPlan(tx: SqlClient, customerId: UUID, createSubscription: CreateSubscription, now: Instant): Future[List[Entitlement]] = {
+  def listPlans(): Future[List[Plan]] = {
+    pool
+      .preparedQuery(
+        """ SELECT plan_type, feature_key, quota
+          | FROM plan_quotas
+          | ORDER BY plan_type, feature_key
+          |""".stripMargin
+      )
+      .execute()
+      .map { rows =>
+        rows.asScala
+          .map(r => (PlanType.valueOf(r.getString("plan_type")), r.getString("feature_key"), r.getLong("quota").longValue))
+          .foldLeft(ListMap.empty[PlanType, ListMap[String, Long]]) { case (acc, (plan, feature, quota)) =>
+            acc.updated(plan, acc.getOrElse(plan, ListMap.empty[String, Long]).updated(feature, quota))
+          }
+          .map((plan, quotas) => Plan(plan, quotas))
+          .toList
+      }
+  }
+
+  def findPlanQuotas(client: SqlClient, planType: PlanType): Future[Map[String, Long]] = {
+    client
+      .preparedQuery(
+        """ SELECT feature_key, quota
+          | FROM plan_quotas
+          | WHERE plan_type = $1::plan_type
+          |""".stripMargin
+      )
+      .execute(Tuple.of(planType.toString))
+      .map(_.asScala.map(r => r.getString("feature_key") -> r.getLong("quota").longValue).toMap)
+  }
+
+  def resetForPlan(tx: SqlClient, customerId: UUID, createSubscription: CreateSubscription, now: Instant): Future[List[Entitlement]] =
+    findPlanQuotas(tx, createSubscription.planType).compose { quotas =>
+      if (quotas.isEmpty) Future.failedFuture(DomainError.PlanNotConfigured(createSubscription.planType))
+      else upsertEntitlements(tx, customerId, quotas, now)
+    }
+
+  private def upsertEntitlements(tx: SqlClient, customerId: UUID, quotas: Map[String, Long], now: Instant): Future[List[Entitlement]] = {
     val resetAt = PlanQuotas.nextResetDate(now).atOffset(ZoneOffset.UTC)
-    val upserts = PlanQuotas.forPlan(createSubscription.planType).toList.sortBy(_._1).map { (feature, quota) =>
+    val upserts = quotas.toList.sortBy(_._1).map { (feature, quota) =>
       tx
         .preparedQuery(
           """ INSERT INTO entitlements (customer_id, feature_key, allocated_quota, consumed_quota, reset_date)

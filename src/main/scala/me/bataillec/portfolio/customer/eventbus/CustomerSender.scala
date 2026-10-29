@@ -28,6 +28,14 @@ class CustomerSender(eventbus: EventBus) {
     }
   }
 
+  def getPlans(): Future[String] = {
+    val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, listPlans_ID)
+
+    eventbus.sendFuture[String](CUSTOMER_ADDRESS, None, deliveryOptions).map { (r: Message[String]) =>
+      r.body
+    }
+  }
+
   def getCustomer(rc: RoutingContext): Future[String] = {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, getCustomer_ID)
 

@@ -67,6 +67,12 @@ object ApiRoutes {
           }
         }
 
+        op(listPlans_ID) { ctx =>
+          sender.getPlans().map { r =>
+            makeResponse(ctx, r)
+          }
+        }
+
         op(consumeEntitlement_ID) { ctx =>
           sender.consumeEntitlement(ctx).map { r =>
             makeResponse(ctx, r)

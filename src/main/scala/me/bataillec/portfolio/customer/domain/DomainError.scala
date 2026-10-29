@@ -23,4 +23,7 @@ object DomainError {
 
   final case class EntitlementNotFound(customerId: UUID, featureKey: String)
       extends DomainError(s"Customer '$customerId' has no entitlement '$featureKey'", 404, "ENTITLEMENT_NOT_FOUND", "Entitlement not found")
+
+  final case class PlanNotConfigured(planType: PlanType)
+      extends DomainError(s"No quotas are configured for plan '$planType'", 500, "PLAN_NOT_CONFIGURED", "Plan not configured")
 }

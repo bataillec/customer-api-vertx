@@ -9,8 +9,22 @@ tags:
   - name: customers
   - name: subscriptions
   - name: entitlements
+  - name: plans
   - name: ops
 paths:
+  /plans:
+    get:
+      tags: [ plans ]
+      operationId: listPlans
+      description: Quotas granted by each plan, as configured in the database.
+      responses:
+        '200':
+          description: Configured plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Plan' }
   /customers:
     post:
       tags: [ customers ]
@@ -220,6 +234,15 @@ components:
         status: { $ref: '#/components/schemas/SubscriptionStatus' }
         start_date: { type: string, format: date-time }
         end_date: { type: string, format: date-time, nullable: true }
+    Plan:
+      type: object
+      required: [ plan_type, quotas ]
+      properties:
+        plan_type: { $ref: '#/components/schemas/PlanType' }
+        quotas:
+          type: object
+          description: Quota per feature key
+          additionalProperties: { type: integer, format: int64 }
     SubscriptionWithEntitlements:
       allOf:
         - $ref: '#/components/schemas/Subscription'

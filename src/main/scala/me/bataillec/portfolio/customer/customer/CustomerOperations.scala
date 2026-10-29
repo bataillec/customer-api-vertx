@@ -92,6 +92,11 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
     }
   }
 
+  def listPlans(): Future[List[Plan]] = {
+    logger.debug("Listing the configured plans")
+    storage.listPlans()
+  }
+
   def listSubscriptions(customerId: UUID): Future[List[Subscription]] = {
     logger.debug("Listing the subscriptions for customer with id = {}", customerId)
     storage.findCustomer(customerId).compose {

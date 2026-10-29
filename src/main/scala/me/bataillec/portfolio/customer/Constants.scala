@@ -109,6 +109,7 @@ object Constants {
   val listEntitlements_ID   = "listEntitlements"
   val subscribe_ID          = "subscribe"
   val listCustomers_ID      = "listCustomers"
+  val listPlans_ID          = "listPlans"
   val consumeEntitlement_ID = "consumeEntitlement"
   val getCustomer_ID        = "getCustomer"
   val live_ID               = "live"

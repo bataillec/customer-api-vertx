@@ -79,6 +79,16 @@ class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
               r.toHttpResponse(statusCode = 201, headers = Map("Location" -> s"/customers/${r.customerId}/subscriptions"))
             )
 
+        case Some(value) if value == listPlans_ID =>
+          operations
+            .listPlans()
+            .map((r: List[Plan]) =>
+              HttpResponse(
+                statusCode = 200,
+                body = JsonSupport.encode(r)
+              )
+            )
+
         case Some(value) if value == listSubscriptions_ID =>
           val customerId = UUID.fromString(msg.headers().get(ID_PATH_PARAM))
           operations.listSubscriptions(customerId).map { (r: List[Subscription]) =>
