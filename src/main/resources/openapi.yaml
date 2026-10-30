@@ -47,6 +47,7 @@ paths:
     get:
       tags: [ customers ]
       operationId: listCustomers
+      description: By default, return all the customer **except** the customers with a `status = 'DELETED'`.
       parameters:
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
         - { name: cursor, in: query, schema: { type: string } }
@@ -167,6 +168,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ConsumeResult' }
         '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
         '429':
           description: QUOTA_EXCEEDED
           headers:

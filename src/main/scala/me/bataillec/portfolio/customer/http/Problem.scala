@@ -5,8 +5,8 @@ import io.vertx.core.json.{Json, JsonObject}
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.HttpException
 import me.bataillec.portfolio.customer.Constants.*
-import me.bataillec.portfolio.customer.domain.DomainError
 import me.bataillec.portfolio.customer.domain.DomainError.*
+import me.bataillec.portfolio.customer.domain.{CustomerStatus, DomainError}
 import org.slf4j.LoggerFactory
 
 import java.util.UUID
@@ -55,6 +55,21 @@ object Problem {
               case (true, false)  => Some(UnknownError(FEATURE_KEY_NOT_FOUND))
               case (false, false) => Some(UnknownError(ID_AND_FEATURE_KEY_NOT_FOUND))
             }
+          case CUSTOMER_NOT_ACTIVE   =>
+            (body.containsKey(CUSTOMER_ID_FIELD), body.containsKey(CUSTOMER_STATUS_FIELD)) match {
+              case (true, true)   =>
+                (
+                  Try(UUID.fromString(body.getString(CUSTOMER_ID_FIELD))),
+                  Try(CustomerStatus.valueOf(body.getString(CUSTOMER_STATUS_FIELD)))
+                ) match {
+                  case (Success(id), Success(status)) => Some(CustomerNotActive(id, status))
+                  case (Failure(_), _)                => Some(UnknownError(MALFORMED_UUID))
+                  case (_, Failure(_))                => Some(UnknownError(MALFORMED_CUSTOMER_STATUS))
+                }
+              case (false, true)  => Some(UnknownError(UUID_NOT_FOUND))
+              case (true, false)  => Some(UnknownError(CUSTOMER_STATUS_NOT_FOUND))
+              case (false, false) => Some(UnknownError(UUID_NOT_FOUND))
+            }
           case UNKOWN_ERROR          => Some(UnknownError(UNKNOWN_ERROR))
           case _                     => Some(UnknownError(UNKNOWN_ERROR))
         }
@@ -78,6 +93,8 @@ object Problem {
         case Some(e: DomainError.EmailAlreadyUsed)                                                                        =>
           write(ctx, e.status, e.code, e.title, Some(e.getMessage))
         case Some(e: DomainError.EntitlementNotFound)                                                                     =>
+          write(ctx, e.status, e.code, e.title, Some(e.getMessage))
+        case Some(e: DomainError.CustomerNotActive)                                                                       =>
           write(ctx, e.status, e.code, e.title, Some(e.getMessage))
         case Some(e: DomainError.QuotaExceeded)                                                                           =>
           write(ctx, e.status, e.code, e.title, Some(e.getMessage), RETRY_AFTER_HEADER -> e.retryAfterSeconds.toString)

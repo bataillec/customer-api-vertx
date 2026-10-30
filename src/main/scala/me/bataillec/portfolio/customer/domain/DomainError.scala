@@ -26,4 +26,7 @@ object DomainError {
 
   final case class PlanNotConfigured(planType: PlanType)
       extends DomainError(s"No quotas are configured for plan '$planType'", 500, "PLAN_NOT_CONFIGURED", "Plan not configured")
+
+  final case class CustomerNotActive(customerId: UUID, customerStatus: CustomerStatus)
+      extends DomainError(s"Customer '$customerId' is $customerStatus", 409, "CUSTOMER_NOT_ACTIVE", "Customer not active")
 }

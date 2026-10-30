@@ -2,6 +2,8 @@ package me.bataillec.portfolio.customer.customer
 
 import io.vertx.core.Future
 import io.vertx.sqlclient.Pool
+import me.bataillec.portfolio.customer
+import me.bataillec.portfolio.customer.domain
 import me.bataillec.portfolio.customer.domain.*
 import me.bataillec.portfolio.customer.domain.DomainError.*
 import me.bataillec.portfolio.customer.eventbus.AuditSender
@@ -41,6 +43,15 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
     }
   }
 
+  // Opaque cursor: base64url("<createdAt>|<id>") of the last item of the previous page.
+  private def encodeCursor(c: Customer): String =
+    Base64.getUrlEncoder.withoutPadding.encodeToString(s"${c.createdAt}|${c.id}".getBytes(UTF_8))
+
+  private def decodeCursor(cursor: String): (Instant, UUID) = {
+    val Array(createdAt, id) = new String(Base64.getUrlDecoder.decode(cursor), UTF_8).split('|')
+    (Instant.parse(createdAt), UUID.fromString(id))
+  }
+
   def getCustomer(customerId: UUID): Future[Customer] = {
     logger.debug("Getting the customer with id = {}", customerId.toString)
     storage.findCustomer(customerId).compose {
@@ -52,10 +63,9 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
   def updateCustomer(customerId: UUID, updateCustomer: UpdateCustomer): Future[Customer] = {
     logger.debug("Updating the customer {} using {}", customerId, updateCustomer)
     pool.withTransaction { tx =>
-      storage.lockCustomerForUpdate(tx, customerId).compose { exist =>
-        if (!exist) {
-          Future.failedFuture(CustomerNotFound(customerId))
-        } else {
+      storage.lockCustomerForUpdate(tx, customerId).compose {
+        case None    => Future.failedFuture(CustomerNotFound(customerId))
+        case Some(s) =>
           storage
             .updateCustomer(tx, customerId, updateCustomer)
             .compose(r =>
@@ -63,11 +73,11 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
                 "CUSTOMER_UPDATED",
                 customerId,
                 "company_name" -> updateCustomer.companyName.getOrElse("-"),
-                "status"       -> updateCustomer.status.map(_.toString).getOrElse("-")
+                "old_status"   -> s.toString,
+                "new_status"   -> updateCustomer.status.map(_.toString).getOrElse("-")
               )
               Future.succeededFuture(r)
             )
-        }
       }
     }
   }
@@ -75,19 +85,22 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
   def createSubscription(customerId: UUID, createSubscription: CreateSubscription): Future[SubscriptionWithEntitlements] = {
     logger.debug("Creating a new subscription for the customer id = {} and subscription = {}", customerId, createSubscription)
     pool.withTransaction { tx =>
-      storage.lockCustomerForUpdate(tx, customerId).compose { exist =>
-        if (!exist) {
-          Future.failedFuture(CustomerNotFound(customerId))
-        } else {
-          for {
-            _            <- storage.cancelActiveSubscription(tx, customerId)
-            subscription <- storage.insertActiveSubscription(tx, customerId, createSubscription)
-            entitlements <- storage.resetForPlan(tx, customerId, createSubscription, Instant.now())
-          } yield {
-            auditSender.send("SUBSCRIPTION_CHANGED", customerId, "plan_type" -> createSubscription.planType.toString)
-            SubscriptionWithEntitlements.fromSubscriptionAndEntitlements(subscription, entitlements)
+      storage.lockCustomerForUpdate(tx, customerId).compose {
+        case None         => Future.failedFuture(CustomerNotFound(customerId))
+        case Some(status) =>
+          status match {
+            case CustomerStatus.ACTIVE                             =>
+              for {
+                _            <- storage.cancelActiveSubscription(tx, customerId)
+                subscription <- storage.insertActiveSubscription(tx, customerId, createSubscription)
+                entitlements <- storage.resetForPlan(tx, customerId, createSubscription, Instant.now())
+              } yield {
+                auditSender.send("SUBSCRIPTION_CHANGED", customerId, "plan_type" -> createSubscription.planType.toString)
+                SubscriptionWithEntitlements.fromSubscriptionAndEntitlements(subscription, entitlements)
+              }
+            case CustomerStatus.SUSPENDED | CustomerStatus.DELETED =>
+              Future.failedFuture(CustomerNotActive(customerId, status))
           }
-        }
       }
     }
   }
@@ -116,32 +129,26 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
   def consumeEntitlement(customerId: UUID, consumption: Consumption): Future[ConsumeResult] = {
     logger.debug("Consuming for customer with id = {}, consumption = {}", customerId, consumption)
     pool.withTransaction { tx =>
-      storage.lockCustomerForUpdate(tx, customerId).compose { exist =>
-        if (!exist) {
-          Future.failedFuture(CustomerNotFound(customerId))
-        } else {
-          storage.findEntitlement(tx, customerId, consumption.featureKey).compose {
-            case None              => Future.failedFuture(EntitlementNotFound(customerId, consumption.featureKey))
-            case Some(entitlement) =>
-              storage.consume(tx, customerId, consumption).compose {
-                case Some(result) => Future.succeededFuture(result)
-                case None         =>
-                  auditSender.send("QUOTA_EXCEEDED", customerId, "feature_key" -> consumption.featureKey)
-                  val retryAfter = Duration.between(Instant.now(), entitlement.resetDate).getSeconds.max(1L)
-                  Future.failedFuture(QuotaExceeded(consumption.featureKey, retryAfter))
+      storage.lockCustomerForUpdate(tx, customerId).compose {
+        case None         => Future.failedFuture(CustomerNotFound(customerId))
+        case Some(status) =>
+          status match {
+            case CustomerStatus.ACTIVE                             =>
+              storage.findEntitlement(tx, customerId, consumption.featureKey).compose {
+                case None              => Future.failedFuture(EntitlementNotFound(customerId, consumption.featureKey))
+                case Some(entitlement) =>
+                  storage.consume(tx, customerId, consumption).compose {
+                    case Some(result) => Future.succeededFuture(result)
+                    case None         =>
+                      auditSender.send("QUOTA_EXCEEDED", customerId, "feature_key" -> consumption.featureKey)
+                      val retryAfter = Duration.between(Instant.now(), entitlement.resetDate).getSeconds.max(1L)
+                      Future.failedFuture(QuotaExceeded(consumption.featureKey, retryAfter))
+                  }
               }
+            case CustomerStatus.SUSPENDED | CustomerStatus.DELETED =>
+              Future.failedFuture(CustomerNotActive(customerId, status))
           }
-        }
       }
     }
-  }
-
-  // Opaque cursor: base64url("<createdAt>|<id>") of the last item of the previous page.
-  private def encodeCursor(c: Customer): String =
-    Base64.getUrlEncoder.withoutPadding.encodeToString(s"${c.createdAt}|${c.id}".getBytes(UTF_8))
-
-  private def decodeCursor(cursor: String): (Instant, UUID) = {
-    val Array(createdAt, id) = new String(Base64.getUrlDecoder.decode(cursor), UTF_8).split('|')
-    (Instant.parse(createdAt), UUID.fromString(id))
   }
 }

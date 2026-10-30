@@ -2,7 +2,7 @@ package me.bataillec.portfolio.customer.customer
 
 import io.vertx.core.Future
 import io.vertx.pgclient.PgException
-import io.vertx.sqlclient.{Pool, SqlClient, Tuple}
+import io.vertx.sqlclient.{Pool, Row, SqlClient, Tuple}
 import me.bataillec.portfolio.customer.domain.*
 
 import java.time.{Instant, ZoneOffset}
@@ -43,7 +43,7 @@ class Storage(pool: Pool) {
       case Some(value) =>
         parameters.addString(value.toString)
         "status = $4 AND "
-      case None        => ""
+      case None        => "status <> 'DELETED' AND "
     }
 
     pool
@@ -70,11 +70,11 @@ class Storage(pool: Pool) {
       .map(_.asScala.headOption.map(Customer.fromRow))
   }
 
-  def lockCustomerForUpdate(tx: SqlClient, customerId: UUID): Future[Boolean] = {
+  def lockCustomerForUpdate(tx: SqlClient, customerId: UUID): Future[Option[CustomerStatus]] = {
     tx
-      .preparedQuery("""SELECT id FROm customers WHERE id = $1 FOR UPDATE""")
+      .preparedQuery("""SELECT status FROM customers WHERE id = $1 FOR UPDATE""")
       .execute(Tuple.of(customerId))
-      .map(_.asScala.headOption.isDefined)
+      .map(_.asScala.headOption.map(v => CustomerStatus.valueOf(v.getString("status"))))
   }
 
   def updateCustomer(tx: SqlClient, customerId: UUID, updateCustomer: UpdateCustomer): Future[Customer] = {
