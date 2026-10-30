@@ -79,6 +79,10 @@ paths:
     patch:
       tags: [ customers ]
       operationId: updateCustomer
+      description: >-
+        Any status change is allowed. Moving to DELETED cancels the ACTIVE subscription and keeps the entitlements and
+        their usage, so a reactivated customer must subscribe again. Changing company_name while the customer stays
+        DELETED fails with 409 CUSTOMER_NOT_ACTIVE.
       requestBody:
         required: true
         content:
@@ -91,6 +95,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Customer' }
         '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
   /customers/{id}/subscriptions:
     parameters:
       - $ref: '#/components/parameters/CustomerId'
@@ -157,7 +162,8 @@ paths:
       description: >-
         Atomic, synchronous quota consumption (RG-04). Once reset_date has passed, consumed_quota restarts from zero and
         reset_date moves to the next period. Entitlements without a reset_date never reset, so their 429 has no
-        Retry-After header. For bulk metering use the usage.recorded.v1 topic.
+        Retry-After header. Requires an ACTIVE subscription, otherwise fails with 409 NO_ACTIVE_SUBSCRIPTION. For bulk
+        metering use the usage.recorded.v1 topic.
       requestBody:
         required: true
         content:

@@ -22,7 +22,7 @@ object Problem {
         val code = body.getString(CODE_FIELD)
 
         code match {
-          case CUSTOMER_NOT_FOUND    =>
+          case CUSTOMER_NOT_FOUND     =>
             if (!body.containsKey(ID_FIELD)) {
               Some(UnknownError(UUID_NOT_FOUND))
             } else {
@@ -31,19 +31,19 @@ object Problem {
                 case Success(value)     => Some(CustomerNotFound(value))
               }
             }
-          case EMAIL_ALREADY_USED    =>
+          case EMAIL_ALREADY_USED     =>
             if (!body.containsKey(EMAIL_FIELD)) {
               Some(UnknownError(EMAIL_NOT_FOUND))
             } else {
               Some(EmailAlreadyUsed(body.getString(EMAIL_FIELD)))
             }
-          case QUOTA_EXCEEDED        =>
+          case QUOTA_EXCEEDED         =>
             if (!body.containsKey(FEATURE_KEY_FIELD)) {
               Some(UnknownError(FEATURE_KEY_NOT_FOUND))
             } else {
               Some(QuotaExceeded(body.getString(FEATURE_KEY_FIELD), Option(body.getLong(RETRY_AFTER_SECONDS_FIELD)).map(_.longValue)))
             }
-          case ENTITLEMENT_NOT_FOUND =>
+          case ENTITLEMENT_NOT_FOUND  =>
             (body.containsKey(CUSTOMER_ID_FIELD), body.containsKey(FEATURE_KEY_FIELD)) match {
               case (true, true)   =>
                 Try(UUID.fromString(body.getString(CUSTOMER_ID_FIELD))) match {
@@ -54,7 +54,7 @@ object Problem {
               case (true, false)  => Some(UnknownError(FEATURE_KEY_NOT_FOUND))
               case (false, false) => Some(UnknownError(ID_AND_FEATURE_KEY_NOT_FOUND))
             }
-          case CUSTOMER_NOT_ACTIVE   =>
+          case CUSTOMER_NOT_ACTIVE    =>
             (body.containsKey(CUSTOMER_ID_FIELD), body.containsKey(CUSTOMER_STATUS_FIELD)) match {
               case (true, true)   =>
                 (
@@ -69,7 +69,7 @@ object Problem {
               case (true, false)  => Some(UnknownError(CUSTOMER_STATUS_NOT_FOUND))
               case (false, false) => Some(UnknownError(UUID_NOT_FOUND))
             }
-          case PLAN_ALREADY_ACTIVE   =>
+          case PLAN_ALREADY_ACTIVE    =>
             (body.containsKey(CUSTOMER_ID_FIELD), body.containsKey(PLAN_TYPE_FIELD)) match {
               case (true, true)   =>
                 (
@@ -84,8 +84,17 @@ object Problem {
               case (true, false)  => Some(UnknownError(PLAN_TYPE_NOT_FOUND))
               case (false, false) => Some(UnknownError(UUID_NOT_FOUND))
             }
-          case UNKOWN_ERROR          => Some(UnknownError(UNKNOWN_ERROR))
-          case _                     => Some(UnknownError(UNKNOWN_ERROR))
+          case NO_ACTIVE_SUBSCRIPTION =>
+            if (!body.containsKey(CUSTOMER_ID_FIELD)) {
+              Some(UnknownError(UUID_NOT_FOUND))
+            } else {
+              Try(UUID.fromString(body.getString(CUSTOMER_ID_FIELD))) match {
+                case Failure(exception) => Some(UnknownError(MALFORMED_UUID))
+                case Success(value)     => Some(NoActiveSubscription(value))
+              }
+            }
+          case UNKOWN_ERROR           => Some(UnknownError(UNKNOWN_ERROR))
+          case _                      => Some(UnknownError(UNKNOWN_ERROR))
         }
       } else {
         Some(UnknownError(UNKNOWN_ERROR))
@@ -111,6 +120,8 @@ object Problem {
         case Some(e: DomainError.CustomerNotActive)                                                                       =>
           write(ctx, e.status, e.code, e.title, Some(e.getMessage))
         case Some(e: DomainError.PlanAlreadyActive)                                                                       =>
+          write(ctx, e.status, e.code, e.title, Some(e.getMessage))
+        case Some(e: DomainError.NoActiveSubscription)                                                                    =>
           write(ctx, e.status, e.code, e.title, Some(e.getMessage))
         case Some(e: DomainError.QuotaExceeded)                                                                           =>
           write(ctx, e.status, e.code, e.title, Some(e.getMessage), e.retryAfterSeconds.map(RETRY_AFTER_HEADER -> _.toString).toSeq*)

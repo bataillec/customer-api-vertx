@@ -37,4 +37,7 @@ object DomainError {
 
   final case class PlanAlreadyActive(customerId: UUID, planType: PlanType)
       extends DomainError(s"Customer '$customerId' is already subscribed to plan '$planType'", 409, "PLAN_ALREADY_ACTIVE", "Plan already active")
+
+  final case class NoActiveSubscription(customerId: UUID)
+      extends DomainError(s"Customer '$customerId' has no active subscription", 409, "NO_ACTIVE_SUBSCRIPTION", "No active subscription")
 }
