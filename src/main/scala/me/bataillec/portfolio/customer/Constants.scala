@@ -7,11 +7,14 @@ object Constants {
 
   val CONTENT_TYPE         = "Content-Type"
   val DEFAULT_CONTENT_TYPE = "application/json"
+  val PROBLEM_CONTENT_TYPE = "application/problem+json"
   val DEFAULT_BODY         = ""
   val DEFAULT_STATUS_CODE  = 200
   val LIMIT_DEFAULT_VALUE  = "50"
 
   val RETRY_AFTER_HEADER = "Retry-After"
+
+  val ROUTING_ERROR_STATUSES = List(404, 405, 406, 415)
 
   val ID_PATH_PARAM = "id"
 
@@ -30,57 +33,33 @@ object Constants {
 
   // region JSON Fields
 
-  val STATUS_CODE_FIELD         = "statusCode"
-  val BODY_FIELD                = "body"
-  val CONTENT_TYPE_FIELD        = "contentType"
-  val HEADERS_FIELD             = "headers"
-  val CODE_FIELD                = "code"
-  val ID_FIELD                  = "id"
-  val EMAIL_FIELD               = "email"
-  val CUSTOMER_ID_FIELD         = "customer_id"
-  val CUSTOMER_STATUS_FIELD     = "customer_status"
-  val PLAN_TYPE_FIELD           = "plan_type"
-  val FEATURE_KEY_FIELD         = "feature_key"
-  val RETRY_AFTER_SECONDS_FIELD = "retry_after_seconds"
-  val TITLE_FIELD               = "title"
-  val DETAIL_FIELD              = "detail"
-  val TRACEPARENT_FIELD         = "traceparent"
-  val TRACE_ID_FIELD            = "trace_id"
+  val STATUS_CODE_FIELD  = "statusCode"
+  val BODY_FIELD         = "body"
+  val CONTENT_TYPE_FIELD = "contentType"
+  val HEADERS_FIELD      = "headers"
+  val CODE_FIELD         = "code"
+  val TITLE_FIELD        = "title"
+  val DETAIL_FIELD       = "detail"
+  val TRACEPARENT_FIELD  = "traceparent"
+  val TRACE_ID_FIELD     = "trace_id"
+  val STATUS_FIELD       = "status"
 
   // endregion
 
   // region Error codes
 
-  val CUSTOMER_NOT_FOUND     = "CUSTOMER_NOT_FOUND"
-  val EMAIL_ALREADY_USED     = "EMAIL_ALREADY_USED"
-  val QUOTA_EXCEEDED         = "QUOTA_EXCEEDED"
-  val ENTITLEMENT_NOT_FOUND  = "ENTITLEMENT_NOT_FOUND"
-  val CUSTOMER_NOT_ACTIVE    = "CUSTOMER_NOT_ACTIVE"
-  val PLAN_ALREADY_ACTIVE    = "PLAN_ALREADY_ACTIVE"
-  val NO_ACTIVE_SUBSCRIPTION = "NO_ACTIVE_SUBSCRIPTION"
-  val UNKOWN_ERROR           = "UNKOWN_ERROR"
-  val TIMEOUT_COMMUNICATION  = "TIMEOUT_COMMUNICATION"
-  val NO_HANDLERS            = "NO_HANDLERS"
-  val RECIPIENT_FAILURE      = "RECIPIENT_FAILURE"
-  val VALIDATION_FAILED      = "VALIDATION_FAILED"
-  val HTTP_ERROR             = "HTTP_ERROR"
-  val INTERNAL_ERROR         = "INTERNAL_ERROR"
-  val NOT_FOUND              = "NOT_FOUND"
+  val TIMEOUT_COMMUNICATION = "TIMEOUT_COMMUNICATION"
+  val NO_HANDLERS           = "NO_HANDLERS"
+  val RECIPIENT_FAILURE     = "RECIPIENT_FAILURE"
+  val VALIDATION_FAILED     = "VALIDATION_FAILED"
+  val HTTP_ERROR            = "HTTP_ERROR"
+  val INTERNAL_ERROR        = "INTERNAL_ERROR"
+  val NOT_FOUND             = "NOT_FOUND"
 
   // endregion
 
   // region Error titles
 
-  val UUID_NOT_FOUND                          = "UUID not found"
-  val MALFORMED_UUID                          = "Malformed UUID"
-  val EMAIL_NOT_FOUND                         = "Email not found"
-  val FEATURE_KEY_NOT_FOUND                   = "FeatureKey not found"
-  val ID_AND_FEATURE_KEY_NOT_FOUND            = "Id and FeatureKey not found"
-  val CUSTOMER_STATUS_NOT_FOUND               = "CustomerStatus not found"
-  val MALFORMED_CUSTOMER_STATUS               = "Malformed CustomerStatus"
-  val PLAN_TYPE_NOT_FOUND                     = "PlanType not found"
-  val MALFORMED_PLAN_TYPE                     = "Malformed PlanType"
-  val UNKNOWN_ERROR                           = "Unknown error"
   val TIMEOUT_COMMUNICATION_BETWEEN_VERTICLES = "Timeout communication between verticles"
   val COMMUNICATION_PROBLEM_BETWEEN_VERTICLES = "Communication problem between verticles"
   val MESSAGES_REJECTED_BY_VERTICLES          = "Messages rejected by verticles"

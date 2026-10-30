@@ -1,5 +1,6 @@
 package me.bataillec.portfolio.customer.http
 
+import io.vertx.core.buffer.Buffer
 import io.vertx.core.{Future, Vertx}
 import io.vertx.ext.healthchecks.{HealthChecks, Status}
 import io.vertx.ext.web.handler.BodyHandler
@@ -7,15 +8,28 @@ import io.vertx.ext.web.healthchecks.HealthCheckHandler
 import io.vertx.ext.web.openapi.router.{RequestExtractor, RouterBuilder}
 import io.vertx.ext.web.{Router, RoutingContext}
 import io.vertx.openapi.contract.OpenAPIContract
+import io.vertx.openapi.mediatype.{ContentAnalyser, MediaTypeRegistration, MediaTypeRegistry}
+import io.vertx.openapi.validation.ValidationContext
 import me.bataillec.portfolio.customer.Constants.*
 import me.bataillec.portfolio.customer.eventbus.{CustomerSender, SenderUtils}
 
+import java.util.List as JList
+
 object ApiRoutes {
+  private val problemMediaType = new MediaTypeRegistration {
+    override def createContentAnalyser(contentType: String, content: Buffer, context: ValidationContext): ContentAnalyser =
+      MediaTypeRegistration.APPLICATION_JSON.createContentAnalyser(contentType, content, context)
+
+    override def canHandle(mediaType: String): Boolean = mediaType == PROBLEM_CONTENT_TYPE
+
+    override def supportedTypes(): JList[String] = JList.of(PROBLEM_CONTENT_TYPE)
+  }
 
   def build(vertx: Vertx, sender: CustomerSender): Future[Router] = {
     OpenAPIContract
       .builder(vertx)
       .setContractPath(OPENAPI_PATH)
+      .mediaTypeRegistry(MediaTypeRegistry.createDefault().register(problemMediaType))
       .build()
       .map { contract =>
         val builder = RouterBuilder.create(vertx, contract, RequestExtractor.withBodyHandler())
@@ -109,6 +123,8 @@ object ApiRoutes {
 
         val router = builder.createRouter()
         router.route().failureHandler(Problem.failureHandler)
+        // Requests that match no route never reach the failure handler
+        ROUTING_ERROR_STATUSES.foreach(router.errorHandler(_, Problem.failureHandler))
 
         // expose the spec as JSON
         router
@@ -125,11 +141,7 @@ object ApiRoutes {
   }
 
   private def makeResponse(ctx: RoutingContext, response: String): Unit = {
-    val r = HttpResponse.fromJsonString(response)
-    Problem.getDomainErrorFromHttpResponse(r) match {
-      case Some(value) => throw value
-      case None        => json(ctx, r)
-    }
+    json(ctx, Problem.withTraceId(ctx, HttpResponse.fromJsonString(response)))
   }
 
   private def json(ctx: RoutingContext, response: HttpResponse): Unit = {

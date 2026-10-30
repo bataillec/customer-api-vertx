@@ -63,6 +63,7 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/Customer' } }
                   next_cursor: { type: string, nullable: true }
+        '400': { $ref: '#/components/responses/Problem' }
   /customers/{id}:
     parameters:
       - $ref: '#/components/parameters/CustomerId'
@@ -75,6 +76,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Customer' }
+        '400': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
     patch:
       tags: [ customers ]
@@ -94,6 +96,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Customer' }
+        '400': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
         '409': { $ref: '#/components/responses/Problem' }
   /customers/{id}/subscriptions:
@@ -124,6 +127,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SubscriptionWithEntitlements' }
+        '400': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
         '409': { $ref: '#/components/responses/Problem' }
     get:
@@ -137,6 +141,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Subscription' }
+        '400': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
   /customers/{id}/entitlements:
     parameters:
@@ -152,6 +157,7 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Entitlement' }
+        '400': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
   /customers/{id}/entitlements/consume:
     parameters:
@@ -172,7 +178,7 @@ paths:
               type: object
               required: [ feature_key, amount ]
               properties:
-                feature_key: { type: string, example: API_CALLS_MONTHLY }
+                feature_key: { type: string, pattern: "^[^\\x00]*$", example: API_CALLS_MONTHLY }
                 amount: { type: integer, format: int64, minimum: 1 }
       responses:
         '200':
@@ -180,6 +186,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ConsumeResult' }
+        '400': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
         '409': { $ref: '#/components/responses/Problem' }
         '429':
@@ -187,7 +194,7 @@ paths:
           headers:
             Retry-After: { schema: { type: integer } }
           content:
-            application/json:
+            application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
   /health/live:
     get:
@@ -212,7 +219,7 @@ components:
     Problem:
       description: Error (RFC 9457)
       content:
-        application/json:
+        application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
   schemas:
     CustomerStatus: { type: string, enum: [ ACTIVE, SUSPENDED, DELETED ] }
@@ -223,11 +230,11 @@ components:
       required: [ email ]
       properties:
         email: { type: string, format: email, maxLength: 255 }
-        company_name: { type: string, maxLength: 255 }
+        company_name: { type: string, maxLength: 255, pattern: "^[^\\x00]*$" }
     UpdateCustomer:
       type: object
       properties:
-        company_name: { type: string, maxLength: 255 }
+        company_name: { type: string, maxLength: 255, pattern: "^[^\\x00]*$" }
         status: { $ref: '#/components/schemas/CustomerStatus' }
     Customer:
       type: object

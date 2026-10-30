@@ -1,17 +1,12 @@
 package me.bataillec.portfolio.customer.domain
 
-import me.bataillec.portfolio.customer.http.WithHttpResponse
-
 import java.util.UUID
 import scala.util.control.NoStackTrace
 
-sealed abstract class DomainError(message: String, val status: Int, val code: String, val title: String)
-    extends Exception(message)
-    with NoStackTrace
-    with WithHttpResponse
+sealed abstract class DomainError(message: String, val status: Int, val code: String, val title: String) extends Exception(message) with NoStackTrace
 
 object DomainError {
-  final case class UnknownError(msg: String) extends DomainError(s"Unknown error occurred: $msg", 500, "UNKOWN_ERROR", "Unkown error")
+  final case class InvalidCursor(cursor: String) extends DomainError(s"Cursor '$cursor' is invalid", 400, "INVALID_CURSOR", "Invalid cursor")
 
   final case class CustomerNotFound(id: UUID) extends DomainError(s"Customer '$id' does not exist", 404, "CUSTOMER_NOT_FOUND", "Customer not found")
 

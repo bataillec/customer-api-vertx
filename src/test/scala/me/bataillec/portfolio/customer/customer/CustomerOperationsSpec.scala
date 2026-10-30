@@ -122,6 +122,12 @@ class CustomerOperationsSpec extends AnyFlatSpec with Matchers with TestContaine
     failure(operations.consumeEntitlement(id, Consumption(apiCalls, 1))) shouldBe a[DomainError.QuotaExceeded]
   }
 
+  "listCustomers" should "reject a cursor that can't be decoded" in withOperations { operations =>
+    List("garbage", "", "!!!", "bm90IGEgY3Vyc29y").foreach { cursor =>
+      failure(operations.listCustomers(10, Some(cursor), None)) shouldBe DomainError.InvalidCursor(cursor)
+    }
+  }
+
   "consumeEntitlement" should "report a missing entitlement for a customer that never subscribed" in withOperations { operations =>
     val id = await(operations.createCustomer(CreateCustomer("never@b.com", None))).id
 

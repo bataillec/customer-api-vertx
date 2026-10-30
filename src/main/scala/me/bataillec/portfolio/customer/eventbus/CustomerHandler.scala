@@ -6,7 +6,7 @@ import io.vertx.sqlclient.Pool
 import me.bataillec.portfolio.customer.Constants.*
 import me.bataillec.portfolio.customer.customer.CustomerOperations
 import me.bataillec.portfolio.customer.domain.*
-import me.bataillec.portfolio.customer.http.HttpResponse
+import me.bataillec.portfolio.customer.http.{HttpResponse, Problem}
 import me.bataillec.portfolio.customer.json.JsonSupport
 import org.slf4j.LoggerFactory
 
@@ -127,8 +127,7 @@ class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
           .onFailure {
             case e: DomainError =>
               logger.error("A domain error occured: {}", e.getMessage)
-              val response = e.toHttpResponse(e.status)
-              msg.reply(response.toJson.encode())
+              msg.reply(Problem.fromDomainError(e).toJson.encode())
             case e: Throwable   =>
               logger.error("Failed to process or reply to the customer message: {}", e.getMessage)
               msg.fail(500, e.getMessage)

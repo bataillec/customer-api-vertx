@@ -32,7 +32,7 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
   def listCustomers(limit: Int, maybeCursor: Option[String], maybeStatus: Option[CustomerStatus]): Future[ListCustomers] = {
     logger.debug("Listing customers: limit={}, cursor={}, status={}", limit, maybeCursor, maybeStatus)
     Try(maybeCursor.map(decodeCursor)) match {
-      case Failure(_)      => Future.failedFuture(new IllegalArgumentException("Invalid cursor"))
+      case Failure(_)      => Future.failedFuture(InvalidCursor(maybeCursor.getOrElse("")))
       case Success(cursor) =>
         // Fetch one extra row to know whether another page exists.
         storage.listCustomers(limit + 1, cursor, maybeStatus).map { rows =>

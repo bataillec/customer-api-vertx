@@ -1,153 +1,69 @@
 package me.bataillec.portfolio.customer.http
 
 import io.vertx.core.eventbus.{ReplyException, ReplyFailure}
-import io.vertx.core.json.{Json, JsonObject}
+import io.vertx.core.json.JsonObject
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.HttpException
+import io.vertx.openapi.validation.ValidatorException
 import me.bataillec.portfolio.customer.Constants.*
-import me.bataillec.portfolio.customer.domain.DomainError.*
-import me.bataillec.portfolio.customer.domain.{CustomerStatus, DomainError, PlanType}
+import me.bataillec.portfolio.customer.domain.DomainError
 import org.slf4j.LoggerFactory
-
-import java.util.UUID
-import scala.util.{Failure, Success, Try}
 
 object Problem {
   private val logger = LoggerFactory.getLogger(getClass)
 
-  def getDomainErrorFromHttpResponse(response: HttpResponse): Option[DomainError] = {
-    if (response.statusCode > 299) { // Error codes 3**, 4** or 5** are errors
-      val body = Json.decodeValue(response.body).asInstanceOf[JsonObject]
-      if (body.containsKey(CODE_FIELD)) {
-        val code = body.getString(CODE_FIELD)
+  def fromDomainError(e: DomainError): HttpResponse = {
+    val headers = e match {
+      case DomainError.QuotaExceeded(_, Some(retryAfter)) => Map(RETRY_AFTER_HEADER -> retryAfter.toString)
+      case _                                              => Map.empty[String, String]
+    }
+    HttpResponse(e.status, body(e.status, e.code, e.title, Some(e.getMessage)).encode(), PROBLEM_CONTENT_TYPE, headers)
+  }
 
-        code match {
-          case CUSTOMER_NOT_FOUND     =>
-            if (!body.containsKey(ID_FIELD)) {
-              Some(UnknownError(UUID_NOT_FOUND))
-            } else {
-              Try(UUID.fromString(body.getString(ID_FIELD))) match {
-                case Failure(exception) => Some(UnknownError(MALFORMED_UUID))
-                case Success(value)     => Some(CustomerNotFound(value))
-              }
-            }
-          case EMAIL_ALREADY_USED     =>
-            if (!body.containsKey(EMAIL_FIELD)) {
-              Some(UnknownError(EMAIL_NOT_FOUND))
-            } else {
-              Some(EmailAlreadyUsed(body.getString(EMAIL_FIELD)))
-            }
-          case QUOTA_EXCEEDED         =>
-            if (!body.containsKey(FEATURE_KEY_FIELD)) {
-              Some(UnknownError(FEATURE_KEY_NOT_FOUND))
-            } else {
-              Some(QuotaExceeded(body.getString(FEATURE_KEY_FIELD), Option(body.getLong(RETRY_AFTER_SECONDS_FIELD)).map(_.longValue)))
-            }
-          case ENTITLEMENT_NOT_FOUND  =>
-            (body.containsKey(CUSTOMER_ID_FIELD), body.containsKey(FEATURE_KEY_FIELD)) match {
-              case (true, true)   =>
-                Try(UUID.fromString(body.getString(CUSTOMER_ID_FIELD))) match {
-                  case Failure(exception) => Some(UnknownError(MALFORMED_UUID))
-                  case Success(value)     => Some(EntitlementNotFound(value, body.getString(FEATURE_KEY_FIELD)))
-                }
-              case (false, true)  => Some(UnknownError(UUID_NOT_FOUND))
-              case (true, false)  => Some(UnknownError(FEATURE_KEY_NOT_FOUND))
-              case (false, false) => Some(UnknownError(ID_AND_FEATURE_KEY_NOT_FOUND))
-            }
-          case CUSTOMER_NOT_ACTIVE    =>
-            (body.containsKey(CUSTOMER_ID_FIELD), body.containsKey(CUSTOMER_STATUS_FIELD)) match {
-              case (true, true)   =>
-                (
-                  Try(UUID.fromString(body.getString(CUSTOMER_ID_FIELD))),
-                  Try(CustomerStatus.valueOf(body.getString(CUSTOMER_STATUS_FIELD)))
-                ) match {
-                  case (Success(id), Success(status)) => Some(CustomerNotActive(id, status))
-                  case (Failure(_), _)                => Some(UnknownError(MALFORMED_UUID))
-                  case (_, Failure(_))                => Some(UnknownError(MALFORMED_CUSTOMER_STATUS))
-                }
-              case (false, true)  => Some(UnknownError(UUID_NOT_FOUND))
-              case (true, false)  => Some(UnknownError(CUSTOMER_STATUS_NOT_FOUND))
-              case (false, false) => Some(UnknownError(UUID_NOT_FOUND))
-            }
-          case PLAN_ALREADY_ACTIVE    =>
-            (body.containsKey(CUSTOMER_ID_FIELD), body.containsKey(PLAN_TYPE_FIELD)) match {
-              case (true, true)   =>
-                (
-                  Try(UUID.fromString(body.getString(CUSTOMER_ID_FIELD))),
-                  Try(PlanType.valueOf(body.getString(PLAN_TYPE_FIELD)))
-                ) match {
-                  case (Success(id), Success(planType)) => Some(PlanAlreadyActive(id, planType))
-                  case (Failure(_), _)                  => Some(UnknownError(MALFORMED_UUID))
-                  case (_, Failure(_))                  => Some(UnknownError(MALFORMED_PLAN_TYPE))
-                }
-              case (false, true)  => Some(UnknownError(UUID_NOT_FOUND))
-              case (true, false)  => Some(UnknownError(PLAN_TYPE_NOT_FOUND))
-              case (false, false) => Some(UnknownError(UUID_NOT_FOUND))
-            }
-          case NO_ACTIVE_SUBSCRIPTION =>
-            if (!body.containsKey(CUSTOMER_ID_FIELD)) {
-              Some(UnknownError(UUID_NOT_FOUND))
-            } else {
-              Try(UUID.fromString(body.getString(CUSTOMER_ID_FIELD))) match {
-                case Failure(exception) => Some(UnknownError(MALFORMED_UUID))
-                case Success(value)     => Some(NoActiveSubscription(value))
-              }
-            }
-          case UNKOWN_ERROR           => Some(UnknownError(UNKNOWN_ERROR))
-          case _                      => Some(UnknownError(UNKNOWN_ERROR))
-        }
-      } else {
-        Some(UnknownError(UNKNOWN_ERROR))
-      }
-    } else None
+  def withTraceId(ctx: RoutingContext, response: HttpResponse): HttpResponse = {
+    if (response.contentType == PROBLEM_CONTENT_TYPE) {
+      traceId(ctx).fold(response)(id => response.copy(body = JsonObject(response.body).put(TRACE_ID_FIELD, id).encode()))
+    } else response
   }
 
   def failureHandler(ctx: RoutingContext): Unit = {
     if (!ctx.response().ended()) {
       Option(ctx.failure()) match {
-        case Some(e: ReplyException) if e.failureType() == ReplyFailure.TIMEOUT                                           =>
+        case Some(e: ReplyException) if e.failureType() == ReplyFailure.TIMEOUT           =>
           write(ctx, 504, TIMEOUT_COMMUNICATION, TIMEOUT_COMMUNICATION_BETWEEN_VERTICLES, Some("Check the application status"))
-        case Some(e: ReplyException) if e.failureType() == ReplyFailure.NO_HANDLERS                                       =>
+        case Some(e: ReplyException) if e.failureType() == ReplyFailure.NO_HANDLERS       =>
           write(ctx, 503, NO_HANDLERS, COMMUNICATION_PROBLEM_BETWEEN_VERTICLES, Some("Check the application status"))
-        case Some(e: ReplyException) if e.failureType() == ReplyFailure.RECIPIENT_FAILURE                                 =>
+        case Some(e: ReplyException) if e.failureType() == ReplyFailure.RECIPIENT_FAILURE =>
           write(ctx, e.failureCode(), RECIPIENT_FAILURE, MESSAGES_REJECTED_BY_VERTICLES, Some("Check the application status"))
-        case Some(e: DomainError.CustomerNotFound)                                                                        =>
-          write(ctx, e.status, e.code, e.title, Some(e.getMessage))
-        case Some(e: DomainError.EmailAlreadyUsed)                                                                        =>
-          write(ctx, e.status, e.code, e.title, Some(e.getMessage))
-        case Some(e: DomainError.EntitlementNotFound)                                                                     =>
-          write(ctx, e.status, e.code, e.title, Some(e.getMessage))
-        case Some(e: DomainError.CustomerNotActive)                                                                       =>
-          write(ctx, e.status, e.code, e.title, Some(e.getMessage))
-        case Some(e: DomainError.PlanAlreadyActive)                                                                       =>
-          write(ctx, e.status, e.code, e.title, Some(e.getMessage))
-        case Some(e: DomainError.NoActiveSubscription)                                                                    =>
-          write(ctx, e.status, e.code, e.title, Some(e.getMessage))
-        case Some(e: DomainError.QuotaExceeded)                                                                           =>
-          write(ctx, e.status, e.code, e.title, Some(e.getMessage), e.retryAfterSeconds.map(RETRY_AFTER_HEADER -> _.toString).toSeq*)
-        case Some(e) if e.getClass.getSimpleName.contains("Validator") || e.getClass.getSimpleName.contains("BadRequest") =>
-          write(ctx, 400, VALIDATION_FAILED, INVALID_REQUEST, Some(e.getMessage))
-        case Some(e: HttpException)                                                                                       =>
+        case Some(e: HttpException) if e.getCause.isInstanceOf[ValidatorException]        =>
+          write(ctx, e.getStatusCode, VALIDATION_FAILED, INVALID_REQUEST, Some(e.getPayload))
+        case Some(e: HttpException)                                                       =>
           write(ctx, e.getStatusCode, HTTP_ERROR, REQUEST_FAILED, Option(e.getPayload).orElse(Option(e.getMessage)))
-        case Some(e)                                                                                                      =>
+        case Some(e)                                                                      =>
           logger.error("Unhandled failure on {} {}", ctx.request().method(), ctx.request().path(), e)
           write(ctx, 500, INTERNAL_ERROR, INTERNAL_SERVER_ERROR, None)
-        case None                                                                                                         =>
+        case None                                                                         =>
           val status = if ctx.statusCode() > 0 then ctx.statusCode() else 500
           write(ctx, status, if status == 404 then NOT_FOUND else HTTP_ERROR, REQUEST_FAILED, None)
       }
     } else ()
   }
 
-  private def write(ctx: RoutingContext, status: Int, code: String, title: String, detail: Option[String], headers: (String, String)*): Unit = {
-    val body     = JsonObject()
+  private def body(status: Int, code: String, title: String, detail: Option[String]): JsonObject = {
+    val json = JsonObject()
       .put(TITLE_FIELD, title)
-      .put(STATUS_CODE_FIELD, Integer.valueOf(status))
+      .put(STATUS_FIELD, Integer.valueOf(status))
       .put(CODE_FIELD, code)
-    detail.foreach(body.put(DETAIL_FIELD, _))
-    Option(ctx.request().getHeader(TRACEPARENT_FIELD)).flatMap(_.split('-').lift(1)).foreach(body.put(TRACE_ID_FIELD, _))
-    val response = ctx.response().setStatusCode(status).putHeader(CONTENT_TYPE, DEFAULT_CONTENT_TYPE)
-    headers.foreach((k, v) => response.putHeader(k, v))
-    response.end(body.encode())
+    detail.foreach(json.put(DETAIL_FIELD, _))
+    json
+  }
+
+  private def traceId(ctx: RoutingContext): Option[String] =
+    Option(ctx.request().getHeader(TRACEPARENT_FIELD)).flatMap(_.split('-').lift(1))
+
+  private def write(ctx: RoutingContext, status: Int, code: String, title: String, detail: Option[String]): Unit = {
+    val json = body(status, code, title, detail)
+    traceId(ctx).foreach(json.put(TRACE_ID_FIELD, _))
+    ctx.response().setStatusCode(status).putHeader(CONTENT_TYPE, PROBLEM_CONTENT_TYPE).end(json.encode())
   }
 }

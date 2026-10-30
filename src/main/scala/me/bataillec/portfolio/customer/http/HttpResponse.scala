@@ -1,6 +1,6 @@
 package me.bataillec.portfolio.customer.http
 
-import io.vertx.core.json.{Json, JsonObject}
+import io.vertx.core.json.JsonObject
 import me.bataillec.portfolio.customer.Constants.*
 
 import scala.jdk.CollectionConverters.*
@@ -18,7 +18,7 @@ final case class HttpResponse(
     json
       .put(STATUS_CODE_FIELD, statusCode)
       .put(CONTENT_TYPE_FIELD, contentType)
-      .put(BODY_FIELD, if (body.isEmpty) JsonObject() else Json.decodeValue(body))
+      .put(BODY_FIELD, body)
       .put(HEADERS_FIELD, headersJson)
   }
 }
@@ -29,7 +29,7 @@ object HttpResponse {
 
     HttpResponse(
       statusCode = json.getInteger(STATUS_CODE_FIELD, DEFAULT_STATUS_CODE).intValue(),
-      body = Json.encode(json.getValue(BODY_FIELD, JsonObject())),
+      body = json.getString(BODY_FIELD, DEFAULT_BODY),
       contentType = Option(json.getString(CONTENT_TYPE_FIELD)).getOrElse(DEFAULT_CONTENT_TYPE),
       headers = json.getJsonObject(HEADERS_FIELD, JsonObject()).getMap.asScala.map((k, v) => k -> v.toString).toMap
     )
