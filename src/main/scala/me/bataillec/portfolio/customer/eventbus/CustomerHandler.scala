@@ -22,10 +22,7 @@ class CustomerHandler(vertx: Vertx, pool: Pool, auditSender: AuditSender) {
       _ <- SenderUtils.pong(
              vertx,
              CUSTOMER_HEALTH_ADDRESS,
-             (msg: Message[String]) =>
-               SenderUtils
-                 .ping(vertx, AUDIT_HEALTH_ADDRESS)
-                 .mapEmpty()
+             (_: Message[String]) => operations.ping().onFailure(err => logger.warn("Postgres is unreachable", err))
            )
       _ <- vertx
              .eventBus()

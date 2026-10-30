@@ -26,16 +26,6 @@ object SenderUtils {
       }
   }
 
-  def ping(vertx: Vertx, address: String): Future[Message[String]] = {
-    vertx
-      .eventBus()
-      .request[String](
-        address,
-        PING,
-        new DeliveryOptions().setSendTimeout(HEALTH_AUDIT_TIMEOUT_MS)
-      )
-  }
-
   def pong(vertx: Vertx, address: String, handler: Message[String] => Future[Unit]): Future[_] = {
     vertx
       .eventBus()
@@ -44,7 +34,7 @@ object SenderUtils {
         msg =>
           handler(msg)
             .onSuccess(_ => msg.reply(PONG))
-            .onFailure(err => msg.fail(503, s"Audit verticle unreachable: ${err.getMessage}"))
+            .onFailure(_ => msg.fail(503, "Postgres unreachable"))
       )
       .completion()
   }

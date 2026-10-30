@@ -69,10 +69,9 @@ object Constants {
 
   // endregion
 
-  val HEALTH_CHECK_TIMEOUT    = 10000     // HealthChecks procedure
-  val HEALTH_PING_TIMEOUT_MS  = 4000      // http -> customer/audit
-  val HEALTH_AUDIT_TIMEOUT_MS = 2000      // customer -> audit
-  val BODY_LIMIT: Int         = 64 * 1024 // in bytes
+  val HEALTH_CHECK_TIMEOUT   = 10000     // HealthChecks procedure
+  val HEALTH_PING_TIMEOUT_MS = 4000      // http -> customer/audit
+  val BODY_LIMIT: Int        = 64 * 1024 // in bytes
 
   // region Eventbus addresses
 

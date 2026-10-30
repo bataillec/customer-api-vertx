@@ -40,6 +40,27 @@ class StorageSpec extends AnyFlatSpec with Matchers with TestContainerForAll {
     finally await(pool.close())
   }
 
+  "insertCustomer" should "keep the email as it was given" in withStorage { (_, storage) =>
+    await(storage.insertCustomer(CreateCustomer("Keep.Case@b.com", None))).email shouldBe "Keep.Case@b.com"
+  }
+
+  it should "refuse an email that only differs by its case" in withStorage { (_, storage) =>
+    await(storage.insertCustomer(CreateCustomer("Same.Person@b.com", None)))
+
+    val result = Try(await(storage.insertCustomer(CreateCustomer("same.person@B.COM", None))))
+
+    result.failed.get.getCause shouldBe DomainError.EmailAlreadyUsed("same.person@B.COM")
+  }
+
+  it should "refuse the email of a deleted customer whatever its case" in withStorage { (pool, storage) =>
+    val customer = await(storage.insertCustomer(CreateCustomer("gone@b.com", None)))
+    await(pool.preparedQuery("UPDATE customers SET status = 'DELETED' WHERE id = $1").execute(Tuple.of(customer.id)))
+
+    val result = Try(await(storage.insertCustomer(CreateCustomer("GONE@b.com", None))))
+
+    result.failed.get.getCause shouldBe DomainError.EmailAlreadyUsed("GONE@b.com")
+  }
+
   "findPlanQuotas" should "return the seeded quotas of each plan" in withStorage { (pool, storage) =>
     await(storage.findPlanQuotas(pool, PlanType.FREE_TIER)) shouldBe Map(
       "API_CALLS_MONTHLY" -> PlanQuota(1_000L, resetsMonthly = true),

@@ -11,6 +11,8 @@ import scala.collection.immutable.ListMap
 import scala.jdk.CollectionConverters.*
 
 class Storage(pool: Pool) {
+  def ping(): Future[Unit] = pool.query("SELECT 1").execute().mapEmpty()
+
   def insertCustomer(customer: CreateCustomer): Future[Customer] = {
     pool
       .preparedQuery(

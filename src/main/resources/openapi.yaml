@@ -206,7 +206,7 @@ paths:
       tags: [ ops ]
       operationId: ready
       responses:
-        '200': { description: Postgres and Kafka reachable }
+        '200': { description: Postgres and the audit verticle reachable }
         '503': { description: Not ready }
 components:
   parameters:
@@ -229,7 +229,7 @@ components:
       type: object
       required: [ email ]
       properties:
-        email: { type: string, format: email, maxLength: 255 }
+        email: { type: string, format: email, maxLength: 255, description: Unique regardless of case }
         company_name: { type: string, maxLength: 255, pattern: "^[^\\x00]*$" }
     UpdateCustomer:
       type: object

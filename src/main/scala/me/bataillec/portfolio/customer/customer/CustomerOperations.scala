@@ -19,6 +19,8 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
 
   private val logger = LoggerFactory.getLogger(getClass)
 
+  def ping(): Future[Unit] = storage.ping()
+
   def createCustomer(createCustomer: CreateCustomer): Future[Customer] = {
     logger.debug("Creating a new customer: {}", createCustomer)
     for {
