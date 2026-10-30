@@ -6,6 +6,7 @@ import org.scalatest.matchers.should.Matchers
 
 import java.time.Instant
 import java.util.UUID
+import scala.collection.immutable.ListMap
 
 class JsonSupportSpec extends AnyFlatSpec with Matchers {
 
@@ -48,6 +49,16 @@ class JsonSupportSpec extends AnyFlatSpec with Matchers {
 
   it should "round-trip a customer" in {
     JsonSupport.decode(JsonSupport.encode(customer), classOf[Customer]) shouldBe customer
+  }
+
+  it should "encode a plan with the reset policy of each quota" in {
+    val plan = Plan(PlanType.PRO, ListMap("STORAGE_GB" -> PlanQuota(50, resetsMonthly = false)))
+    JsonSupport.encode(plan) shouldBe """{"plan_type":"PRO","quotas":{"STORAGE_GB":{"quota":50,"resets_monthly":false}}}"""
+  }
+
+  it should "encode the reset date of an entitlement and omit it when there is none" in {
+    JsonSupport.encode(Entitlement("CALLS", 10, 1, Some(Instant.parse("2026-11-01T00:00:00Z")))) should include(""""reset_date":"2026-11-01T00:00:00Z"""")
+    JsonSupport.encode(Entitlement("STORAGE_GB", 10, 1, None)) should not include "reset_date"
   }
 
   "ListCustomers" should "build an HttpResponse with the items and next_cursor" in {

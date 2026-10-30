@@ -102,6 +102,18 @@ class Storage(pool: Pool) {
       .mapEmpty()
   }
 
+  def findActivePlan(tx: SqlClient, customerId: UUID): Future[Option[PlanType]] = {
+    tx
+      .preparedQuery(
+        """ SELECT plan_type
+          | FROM subscriptions
+          | WHERE customer_id = $1 AND status = 'ACTIVE'
+          |""".stripMargin
+      )
+      .execute(Tuple.of(customerId))
+      .map(_.asScala.headOption.map(r => PlanType.valueOf(r.getString("plan_type"))))
+  }
+
   def insertActiveSubscription(tx: SqlClient, customerId: UUID, createSubscription: CreateSubscription): Future[Subscription] = {
     tx
       .preparedQuery(""" INSERT INTO subscriptions (customer_id, plan_type)
@@ -115,7 +127,7 @@ class Storage(pool: Pool) {
   def listPlans(): Future[List[Plan]] = {
     pool
       .preparedQuery(
-        """ SELECT plan_type, feature_key, quota
+        """ SELECT plan_type, feature_key, quota, resets_monthly
           | FROM plan_quotas
           | ORDER BY plan_type, feature_key
           |""".stripMargin
@@ -123,43 +135,59 @@ class Storage(pool: Pool) {
       .execute()
       .map { rows =>
         rows.asScala
-          .map(r => (PlanType.valueOf(r.getString("plan_type")), r.getString("feature_key"), r.getLong("quota").longValue))
-          .foldLeft(ListMap.empty[PlanType, ListMap[String, Long]]) { case (acc, (plan, feature, quota)) =>
-            acc.updated(plan, acc.getOrElse(plan, ListMap.empty[String, Long]).updated(feature, quota))
+          .map(r => (PlanType.valueOf(r.getString("plan_type")), r.getString("feature_key"), planQuotaFromRow(r)))
+          .foldLeft(ListMap.empty[PlanType, ListMap[String, PlanQuota]]) { case (acc, (plan, feature, quota)) =>
+            acc.updated(plan, acc.getOrElse(plan, ListMap.empty[String, PlanQuota]).updated(feature, quota))
           }
           .map((plan, quotas) => Plan(plan, quotas))
           .toList
       }
   }
 
-  def findPlanQuotas(client: SqlClient, planType: PlanType): Future[Map[String, Long]] = {
+  private def planQuotaFromRow(r: Row): PlanQuota =
+    PlanQuota(quota = r.getLong("quota"), resetsMonthly = r.getBoolean("resets_monthly"))
+
+  def findPlanQuotas(client: SqlClient, planType: PlanType): Future[Map[String, PlanQuota]] = {
     client
       .preparedQuery(
-        """ SELECT feature_key, quota
+        """ SELECT feature_key, quota, resets_monthly
           | FROM plan_quotas
           | WHERE plan_type = $1::plan_type
           |""".stripMargin
       )
       .execute(Tuple.of(planType.toString))
-      .map(_.asScala.map(r => r.getString("feature_key") -> r.getLong("quota").longValue).toMap)
+      .map(_.asScala.map(r => r.getString("feature_key") -> planQuotaFromRow(r)).toMap)
   }
 
-  def resetForPlan(tx: SqlClient, customerId: UUID, createSubscription: CreateSubscription, now: Instant): Future[List[Entitlement]] =
+  /** Aligns the entitlements with the plan. The usage survives a plan change, so that switching plans can't be used to bypass a quota. */
+  def applyPlan(tx: SqlClient, customerId: UUID, createSubscription: CreateSubscription, now: Instant): Future[List[Entitlement]] =
     findPlanQuotas(tx, createSubscription.planType).compose { quotas =>
       if (quotas.isEmpty) Future.failedFuture(DomainError.PlanNotConfigured(createSubscription.planType))
-      else upsertEntitlements(tx, customerId, quotas, now)
+      else deleteEntitlementsOutsidePlan(tx, customerId, quotas.keySet).compose(_ => upsertEntitlements(tx, customerId, quotas, now))
     }
 
-  private def upsertEntitlements(tx: SqlClient, customerId: UUID, quotas: Map[String, Long], now: Instant): Future[List[Entitlement]] = {
+  private def deleteEntitlementsOutsidePlan(tx: SqlClient, customerId: UUID, features: Set[String]): Future[Unit] = {
+    tx
+      .preparedQuery(
+        """ DELETE FROM entitlements
+          | WHERE customer_id = $1 AND feature_key <> ALL($2::varchar[])
+          |""".stripMargin
+      )
+      .execute(Tuple.of(customerId, features.toArray))
+      .mapEmpty()
+  }
+
+  private def upsertEntitlements(tx: SqlClient, customerId: UUID, quotas: Map[String, PlanQuota], now: Instant): Future[List[Entitlement]] = {
     val resetAt = PlanQuotas.nextResetDate(now).atOffset(ZoneOffset.UTC)
-    val upserts = quotas.toList.sortBy(_._1).map { (feature, quota) =>
+    val upserts = quotas.toList.sortBy(_._1).map { (feature, planQuota) =>
       tx
         .preparedQuery(
           """ INSERT INTO entitlements (customer_id, feature_key, allocated_quota, consumed_quota, reset_date)
             | VALUES ($1, $2, $3, 0, $4)
             | ON CONFLICT (customer_id, feature_key)
             | DO UPDATE
-            | SET allocated_quota = EXCLUDED.allocated_quota, consumed_quota = 0, reset_date = EXCLUDED.reset_date
+            | SET allocated_quota = EXCLUDED.allocated_quota,
+            |     reset_date = CASE WHEN EXCLUDED.reset_date IS NULL THEN NULL ELSE COALESCE(entitlements.reset_date, EXCLUDED.reset_date) END
             | RETURNING feature_key, allocated_quota, consumed_quota, reset_date
             | """.stripMargin
         )
@@ -167,8 +195,8 @@ class Storage(pool: Pool) {
           Tuple.of(
             customerId,
             feature,
-            quota,
-            resetAt
+            planQuota.quota,
+            Option.when(planQuota.resetsMonthly)(resetAt).orNull
           )
         )
         .map(r => Entitlement.fromRow(r.asScala.head))
@@ -222,14 +250,16 @@ class Storage(pool: Pool) {
       .map(_.asScala.headOption.map(Entitlement.fromRow))
   }
 
-  def consume(tx: SqlClient, customerId: UUID, consumption: Consumption): Future[Option[ConsumeResult]] = {
+  /** Starts a new period when `reset_date` has passed, so the quota is checked against the usage of the current period only. */
+  def consume(tx: SqlClient, customerId: UUID, consumption: Consumption, now: Instant): Future[Option[ConsumeResult]] = {
     tx
       .preparedQuery(
         """ UPDATE entitlements
-          | SET consumed_quota = consumed_quota + $3
+          | SET consumed_quota = CASE WHEN reset_date <= $4 THEN 0 ELSE consumed_quota END + $3::bigint,
+          |     reset_date = CASE WHEN reset_date <= $4 THEN $5 ELSE reset_date END
           | WHERE customer_id = $1
           | AND feature_key = $2
-          | AND consumed_quota + $3 <= allocated_quota
+          | AND $3::bigint <= allocated_quota - CASE WHEN reset_date <= $4 THEN 0 ELSE consumed_quota END
           | RETURNING feature_key, allocated_quota, consumed_quota
           |""".stripMargin
       )
@@ -237,7 +267,9 @@ class Storage(pool: Pool) {
         Tuple.of(
           customerId,
           consumption.featureKey,
-          consumption.amount
+          consumption.amount,
+          now.atOffset(ZoneOffset.UTC),
+          PlanQuotas.nextResetDate(now).atOffset(ZoneOffset.UTC)
         )
       )
       .map(_.asScala.headOption.map(ConsumeResult.fromRow))

@@ -97,7 +97,11 @@ paths:
     post:
       tags: [ subscriptions ]
       operationId: subscribe
-      description: Cancels the current ACTIVE subscription (RG-02) and resets entitlements (RG-03).
+      description: >-
+        Cancels the current ACTIVE subscription (RG-02) and aligns entitlements with the new plan (RG-03). Allocations
+        change but the usage and reset date are kept, even when the usage exceeds a lower allocation. Entitlements that
+        are not part of the new plan are removed. Subscribing to the plan that is already active fails with 409
+        PLAN_ALREADY_ACTIVE.
       requestBody:
         required: true
         content:
@@ -150,7 +154,10 @@ paths:
     post:
       tags: [ entitlements ]
       operationId: consumeEntitlement
-      description: Atomic, synchronous quota consumption (RG-04). For bulk metering use the usage.recorded.v1 topic.
+      description: >-
+        Atomic, synchronous quota consumption (RG-04). Once reset_date has passed, consumed_quota restarts from zero and
+        reset_date moves to the next period. Entitlements without a reset_date never reset, so their 429 has no
+        Retry-After header. For bulk metering use the usage.recorded.v1 topic.
       requestBody:
         required: true
         content:
@@ -244,7 +251,15 @@ components:
         quotas:
           type: object
           description: Quota per feature key
-          additionalProperties: { type: integer, format: int64 }
+          additionalProperties: { $ref: '#/components/schemas/PlanQuota' }
+    PlanQuota:
+      type: object
+      required: [ quota, resets_monthly ]
+      properties:
+        quota: { type: integer, format: int64 }
+        resets_monthly:
+          type: boolean
+          description: Whether the usage restarts from zero each month. False for features such as STORAGE_GB.
     SubscriptionWithEntitlements:
       allOf:
         - $ref: '#/components/schemas/Subscription'
@@ -256,12 +271,15 @@ components:
               items: { $ref: '#/components/schemas/Entitlement' }
     Entitlement:
       type: object
-      required: [ feature_key, allocated_quota, consumed_quota, reset_date ]
+      required: [ feature_key, allocated_quota, consumed_quota ]
       properties:
         feature_key: { type: string }
         allocated_quota: { type: integer, format: int64 }
         consumed_quota: { type: integer, format: int64 }
-        reset_date: { type: string, format: date-time }
+        reset_date:
+          type: string
+          format: date-time
+          description: When the usage restarts from zero. Absent when it never resets.
     ConsumeResult:
       type: object
       required: [ feature_key, allocated_quota, consumed_quota, remaining_quota ]

@@ -6,7 +6,7 @@ import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.HttpException
 import me.bataillec.portfolio.customer.Constants.*
 import me.bataillec.portfolio.customer.domain.DomainError.*
-import me.bataillec.portfolio.customer.domain.{CustomerStatus, DomainError}
+import me.bataillec.portfolio.customer.domain.{CustomerStatus, DomainError, PlanType}
 import org.slf4j.LoggerFactory
 
 import java.util.UUID
@@ -38,11 +38,10 @@ object Problem {
               Some(EmailAlreadyUsed(body.getString(EMAIL_FIELD)))
             }
           case QUOTA_EXCEEDED        =>
-            (body.containsKey(FEATURE_KEY_FIELD), body.containsKey(RETRY_AFTER_SECONDS_FIELD)) match {
-              case (true, true)   => Some(QuotaExceeded(body.getString(FEATURE_KEY_FIELD), body.getLong(RETRY_AFTER_SECONDS_FIELD)))
-              case (false, true)  => Some(UnknownError(FEATURE_KEY_NOT_FOUND))
-              case (true, false)  => Some(UnknownError(RETRY_AFTER_SECONDS_NOT_FOUND))
-              case (false, false) => Some(UnknownError(FEATURE_KEY_AND_RETRY_AFTER_SECONDS_NOT_FOUND))
+            if (!body.containsKey(FEATURE_KEY_FIELD)) {
+              Some(UnknownError(FEATURE_KEY_NOT_FOUND))
+            } else {
+              Some(QuotaExceeded(body.getString(FEATURE_KEY_FIELD), Option(body.getLong(RETRY_AFTER_SECONDS_FIELD)).map(_.longValue)))
             }
           case ENTITLEMENT_NOT_FOUND =>
             (body.containsKey(CUSTOMER_ID_FIELD), body.containsKey(FEATURE_KEY_FIELD)) match {
@@ -68,6 +67,21 @@ object Problem {
                 }
               case (false, true)  => Some(UnknownError(UUID_NOT_FOUND))
               case (true, false)  => Some(UnknownError(CUSTOMER_STATUS_NOT_FOUND))
+              case (false, false) => Some(UnknownError(UUID_NOT_FOUND))
+            }
+          case PLAN_ALREADY_ACTIVE   =>
+            (body.containsKey(CUSTOMER_ID_FIELD), body.containsKey(PLAN_TYPE_FIELD)) match {
+              case (true, true)   =>
+                (
+                  Try(UUID.fromString(body.getString(CUSTOMER_ID_FIELD))),
+                  Try(PlanType.valueOf(body.getString(PLAN_TYPE_FIELD)))
+                ) match {
+                  case (Success(id), Success(planType)) => Some(PlanAlreadyActive(id, planType))
+                  case (Failure(_), _)                  => Some(UnknownError(MALFORMED_UUID))
+                  case (_, Failure(_))                  => Some(UnknownError(MALFORMED_PLAN_TYPE))
+                }
+              case (false, true)  => Some(UnknownError(UUID_NOT_FOUND))
+              case (true, false)  => Some(UnknownError(PLAN_TYPE_NOT_FOUND))
               case (false, false) => Some(UnknownError(UUID_NOT_FOUND))
             }
           case UNKOWN_ERROR          => Some(UnknownError(UNKNOWN_ERROR))
@@ -96,8 +110,10 @@ object Problem {
           write(ctx, e.status, e.code, e.title, Some(e.getMessage))
         case Some(e: DomainError.CustomerNotActive)                                                                       =>
           write(ctx, e.status, e.code, e.title, Some(e.getMessage))
+        case Some(e: DomainError.PlanAlreadyActive)                                                                       =>
+          write(ctx, e.status, e.code, e.title, Some(e.getMessage))
         case Some(e: DomainError.QuotaExceeded)                                                                           =>
-          write(ctx, e.status, e.code, e.title, Some(e.getMessage), RETRY_AFTER_HEADER -> e.retryAfterSeconds.toString)
+          write(ctx, e.status, e.code, e.title, Some(e.getMessage), e.retryAfterSeconds.map(RETRY_AFTER_HEADER -> _.toString).toSeq*)
         case Some(e) if e.getClass.getSimpleName.contains("Validator") || e.getClass.getSimpleName.contains("BadRequest") =>
           write(ctx, 400, VALIDATION_FAILED, INVALID_REQUEST, Some(e.getMessage))
         case Some(e: HttpException)                                                                                       =>

@@ -90,13 +90,17 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
         case Some(status) =>
           status match {
             case CustomerStatus.ACTIVE                             =>
-              for {
-                _            <- storage.cancelActiveSubscription(tx, customerId)
-                subscription <- storage.insertActiveSubscription(tx, customerId, createSubscription)
-                entitlements <- storage.resetForPlan(tx, customerId, createSubscription, Instant.now())
-              } yield {
-                auditSender.send("SUBSCRIPTION_CHANGED", customerId, "plan_type" -> createSubscription.planType.toString)
-                SubscriptionWithEntitlements.fromSubscriptionAndEntitlements(subscription, entitlements)
+              storage.findActivePlan(tx, customerId).compose {
+                case Some(plan) if plan == createSubscription.planType => Future.failedFuture(PlanAlreadyActive(customerId, plan))
+                case _                                                 =>
+                  for {
+                    _            <- storage.cancelActiveSubscription(tx, customerId)
+                    subscription <- storage.insertActiveSubscription(tx, customerId, createSubscription)
+                    entitlements <- storage.applyPlan(tx, customerId, createSubscription, Instant.now())
+                  } yield {
+                    auditSender.send("SUBSCRIPTION_CHANGED", customerId, "plan_type" -> createSubscription.planType.toString)
+                    SubscriptionWithEntitlements.fromSubscriptionAndEntitlements(subscription, entitlements)
+                  }
               }
             case CustomerStatus.SUSPENDED | CustomerStatus.DELETED =>
               Future.failedFuture(CustomerNotActive(customerId, status))
@@ -122,7 +126,9 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
     logger.debug("Listing entitlements for customer with id = {}", customerId)
     storage.findCustomer(customerId).compose {
       case None    => Future.failedFuture(CustomerNotFound(customerId))
-      case Some(_) => storage.listEntitlements(customerId)
+      case Some(_) =>
+        val now = Instant.now()
+        storage.listEntitlements(customerId).map(_.map(_.effective(now)))
     }
   }
 
@@ -137,11 +143,12 @@ class CustomerOperations(pool: Pool, auditSender: AuditSender) {
               storage.findEntitlement(tx, customerId, consumption.featureKey).compose {
                 case None              => Future.failedFuture(EntitlementNotFound(customerId, consumption.featureKey))
                 case Some(entitlement) =>
-                  storage.consume(tx, customerId, consumption).compose {
+                  val now = Instant.now()
+                  storage.consume(tx, customerId, consumption, now).compose {
                     case Some(result) => Future.succeededFuture(result)
                     case None         =>
                       auditSender.send("QUOTA_EXCEEDED", customerId, "feature_key" -> consumption.featureKey)
-                      val retryAfter = Duration.between(Instant.now(), entitlement.resetDate).getSeconds.max(1L)
+                      val retryAfter = entitlement.effective(now).resetDate.map(Duration.between(now, _).getSeconds.max(1L))
                       Future.failedFuture(QuotaExceeded(consumption.featureKey, retryAfter))
                   }
               }

@@ -18,8 +18,13 @@ object DomainError {
   final case class EmailAlreadyUsed(email: String)
       extends DomainError(s"A customer with email '$email' already exists", 409, "EMAIL_ALREADY_USED", "Email already used")
 
-  final case class QuotaExceeded(featureKey: String, retryAfterSeconds: Long)
-      extends DomainError(s"Quota for '$featureKey' is exhausted. Retry in $retryAfterSeconds seconds", 429, "QUOTA_EXCEEDED", "Quota exceeded")
+  final case class QuotaExceeded(featureKey: String, retryAfterSeconds: Option[Long])
+      extends DomainError(
+        s"Quota for '$featureKey' is exhausted" + retryAfterSeconds.fold("")(seconds => s". Retry in $seconds seconds"),
+        429,
+        "QUOTA_EXCEEDED",
+        "Quota exceeded"
+      )
 
   final case class EntitlementNotFound(customerId: UUID, featureKey: String)
       extends DomainError(s"Customer '$customerId' has no entitlement '$featureKey'", 404, "ENTITLEMENT_NOT_FOUND", "Entitlement not found")
@@ -29,4 +34,7 @@ object DomainError {
 
   final case class CustomerNotActive(customerId: UUID, customerStatus: CustomerStatus)
       extends DomainError(s"Customer '$customerId' is $customerStatus", 409, "CUSTOMER_NOT_ACTIVE", "Customer not active")
+
+  final case class PlanAlreadyActive(customerId: UUID, planType: PlanType)
+      extends DomainError(s"Customer '$customerId' is already subscribed to plan '$planType'", 409, "PLAN_ALREADY_ACTIVE", "Plan already active")
 }
