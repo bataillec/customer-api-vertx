@@ -1,13 +1,12 @@
 package me.bataillec.portfolio.customer.audit
 
-import me.bataillec.portfolio.customer.config.AuditConfig
-import org.slf4j.LoggerFactory
+class AuditOperation(auditLogger: AuditLogger) extends AuditOps {
 
-class AuditOperation(conf: AuditConfig) {
-  AuditLogger.init(conf.auditFilePath)
-  private val logger = LoggerFactory.getLogger(getClass)
+  override def audit(msg: String): Unit = {
+    auditLogger.audit(msg)
+  }
 
-  def audit(msg: String): Unit = {
-    AuditLogger.audit(msg)
+  override def close(): Unit = {
+    auditLogger.close()
   }
 }

@@ -1,6 +1,5 @@
 package me.bataillec.portfolio.customer.domain
 
-import io.vertx.sqlclient.Row
 import me.bataillec.portfolio.customer.http.WithHttpResponse
 
 import java.time.Instant

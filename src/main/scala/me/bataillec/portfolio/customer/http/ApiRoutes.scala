@@ -82,7 +82,7 @@ object ApiRoutes {
         }
 
         op(listPlans_ID) { ctx =>
-          sender.getPlans().map { r =>
+          sender.getPlans(ctx).map { r =>
             makeResponse(ctx, r)
           }
         }

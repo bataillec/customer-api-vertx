@@ -1,5 +1,6 @@
 package me.bataillec.portfolio.customer.domain
 
+import io.vertx.sqlclient.Row
 import me.bataillec.portfolio.customer.domain
 
 import java.time.{Instant, ZoneOffset}
@@ -17,4 +18,10 @@ object PlanQuotas {
       .atStartOfDay(ZoneOffset.UTC)
       .toInstant
   }
+
+  def fromRow(r: Row): PlanQuota =
+    PlanQuota(
+      quota = r.getLong("quota"),
+      resetsMonthly = r.getBoolean("resets_monthly")
+    )
 }
