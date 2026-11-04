@@ -14,7 +14,7 @@ object Constants {
 
   val RETRY_AFTER_HEADER = "Retry-After"
 
-  val ROUTING_ERROR_STATUSES = List(404, 405, 406, 415)
+  val ROUTING_ERROR_STATUSES: List[Int] = List(404, 405, 406, 415)
 
   val ID_PATH_PARAM = "id"
 

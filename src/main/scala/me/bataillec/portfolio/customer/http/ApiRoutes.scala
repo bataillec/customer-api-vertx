@@ -134,7 +134,7 @@ object ApiRoutes {
               .response()
               .putHeader(CONTENT_TYPE_FIELD, DEFAULT_CONTENT_TYPE)
               .end(contract.getRawContract().encode())
-          );
+          )
 
         router
       }

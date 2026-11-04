@@ -141,7 +141,7 @@ class PGStorage(pool: Pool) extends Storage {
       .execute()
       .map { rows =>
         rows.asScala
-          .map(r => (PlanType.valueOf(r.getString("plan_type")), r.getString("feature_key"), PlanQuotas.fromRow(r)))
+          .map(r => (PlanType.valueOf(r.getString("plan_type")), r.getString("feature_key"), PlanQuota.fromRow(r)))
           .foldLeft(ListMap.empty[PlanType, ListMap[String, PlanQuota]]) { case (acc, (plan, feature, quota)) =>
             acc.updated(plan, acc.getOrElse(plan, ListMap.empty[String, PlanQuota]).updated(feature, quota))
           }
@@ -159,7 +159,7 @@ class PGStorage(pool: Pool) extends Storage {
           |""".stripMargin
       )
       .execute(Tuple.of(planType.toString))
-      .map(_.asScala.map(r => r.getString("feature_key") -> PlanQuotas.fromRow(r)).toMap)
+      .map(_.asScala.map(r => r.getString("feature_key") -> PlanQuota.fromRow(r)).toMap)
   }
 
   /** Aligns the entitlements with the plan. The usage survives a plan change, so that switching plans can't be used to bypass a quota. */
@@ -181,7 +181,7 @@ class PGStorage(pool: Pool) extends Storage {
   }
 
   private def upsertEntitlements(tx: SqlClient, customerId: UUID, quotas: Map[String, PlanQuota], now: Instant): Future[List[Entitlement]] = {
-    val resetAt = PlanQuotas.nextResetDate(now).atOffset(ZoneOffset.UTC)
+    val resetAt = PlanQuota.nextResetDate(now).atOffset(ZoneOffset.UTC)
     val upserts = quotas.toList.sortBy(_._1).map { (feature, planQuota) =>
       tx
         .preparedQuery(
@@ -272,7 +272,7 @@ class PGStorage(pool: Pool) extends Storage {
           consumption.featureKey,
           consumption.amount,
           now.atOffset(ZoneOffset.UTC),
-          PlanQuotas.nextResetDate(now).atOffset(ZoneOffset.UTC)
+          PlanQuota.nextResetDate(now).atOffset(ZoneOffset.UTC)
         )
       )
       .map(_.asScala.headOption.map(ConsumeResult.fromRow))

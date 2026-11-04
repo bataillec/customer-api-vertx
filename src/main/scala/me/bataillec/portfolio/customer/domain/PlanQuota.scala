@@ -1,14 +1,15 @@
 package me.bataillec.portfolio.customer.domain
 
 import io.vertx.sqlclient.Row
-import me.bataillec.portfolio.customer.domain
 
 import java.time.{Instant, ZoneOffset}
 
-object PlanQuotas {
-  val apiCalls    = "API_CALLS_MONTHLY"
-  val storageSize = "STORAGE_GB"
+final case class PlanQuota(
+    quota: Long,
+    resetsMonthly: Boolean
+)
 
+object PlanQuota {
   def nextResetDate(now: Instant): Instant = {
     now
       .atZone(ZoneOffset.UTC)

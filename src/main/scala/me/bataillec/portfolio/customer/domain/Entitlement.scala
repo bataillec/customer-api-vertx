@@ -15,7 +15,7 @@ final case class Entitlement(
   /** The values as of `now`: once `resetDate` has passed, a new period starts even if nothing has been consumed yet. */
   def effective(now: Instant): Entitlement =
     resetDate match {
-      case Some(date) if !date.isAfter(now) => copy(consumedQuota = 0, resetDate = Some(PlanQuotas.nextResetDate(now)))
+      case Some(date) if !date.isAfter(now) => copy(consumedQuota = 0, resetDate = Some(PlanQuota.nextResetDate(now)))
       case _                                => this
     }
 }

@@ -8,7 +8,7 @@ import io.vertx.ext.web.RoutingContext
 object EventbusUtils {
   private val TIMEOUT_IN_SEC = 30
 
-  def getTimeoutInMilliseconds: Int = TIMEOUT_IN_SEC * 1000
+  private def getTimeoutInMilliseconds: Int = TIMEOUT_IN_SEC * 1000
 
   implicit class MyEventBus(val eb: EventBus) {
 
