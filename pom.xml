@@ -35,10 +35,8 @@
         <testcontainers-scala.version>0.44.1</testcontainers-scala.version>
 
         <mockito.version>5.24.0</mockito.version>
-        <jacoco.version>0.8.16</jacoco.version>
+        <scoverage.plugin.version>2.1.5</scoverage.plugin.version>
         <maven-dependency-plugin.version>3.11.0</maven-dependency-plugin.version>
-        <!-- JaCoCo fills this; keep it defined so the build still works when JaCoCo is skipped -->
-        <argLine></argLine>
     </properties>
 
     <dependencyManagement>
@@ -182,8 +180,7 @@
                     <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
                     <junitxml>.</junitxml>
                     <filereports>WDF TestSuite.txt</filereports>
-                    <!-- JaCoCo's ${argLine} first, then the Mockito agent -->
-                    <argLine>${argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    <argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
                     <!-- Only the suites under .unit (sub-packages included). Integration specs are NOT run by mvn test -->
                     <wildcardSuites>me.bataillec.portfolio.customer.unit</wildcardSuites>
                 </configuration>
@@ -271,52 +268,28 @@
             </plugin>
 
             <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <version>${jacoco.version}</version>
+                <groupId>org.scoverage</groupId>
+                <artifactId>scoverage-maven-plugin</artifactId>
+                <version>${scoverage.plugin.version}</version>
                 <configuration>
-                    <!--                    <excludes>
-                                            <exclude>**/Constants*</exclude>
-                                            <exclude>**/*Verticle*</exclude>
-                                            <exclude>**/customer/Storage*</exclude>
-                                            <exclude>**/customer/PgTransactor*</exclude>
-                                            <exclude>**/http/ApiRoutes*</exclude>
-                                        </excludes>-->
+                    <!-- Minimum statement coverage (percent); the build fails below it -->
+                    <minimumCoverage>85</minimumCoverage>
+                    <failOnMinimumCoverage>true</failOnMinimumCoverage>
                 </configuration>
                 <executions>
                     <execution>
-                        <id>prepare-agent</id>
-                        <goals>
-                            <goal>prepare-agent</goal>
-                        </goals>
-                    </execution>
-                    <execution>
-                        <id>report</id>
-                        <phase>test</phase>
+                        <id>coverage-report</id>
+                        <phase>verify</phase>
                         <goals>
                             <goal>report</goal>
                         </goals>
                     </execution>
                     <execution>
-                        <id>check</id>
+                        <id>coverage-check</id>
                         <phase>verify</phase>
                         <goals>
                             <goal>check</goal>
                         </goals>
-                        <configuration>
-                            <rules>
-                                <rule>
-                                    <element>BUNDLE</element>
-                                    <limits>
-                                        <limit>
-                                            <counter>LINE</counter>
-                                            <value>COVEREDRATIO</value>
-                                            <minimum>0.85</minimum>   <!-- set from the measured baseline -->
-                                        </limit>
-                                    </limits>
-                                </rule>
-                            </rules>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>
