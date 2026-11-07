@@ -1,6 +1,7 @@
 package me.bataillec.portfolio.customer.unit.config
 
 import me.bataillec.portfolio.customer.config.AuditConfig
+import me.bataillec.portfolio.customer.support.EnvironmentUtils
 import org.scalatest.Inside.inside
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
@@ -16,6 +17,16 @@ class AuditConfigSpec extends AnyWordSpec with Matchers {
     }
 
     "build fromEnv" when {
+      "Use env" in {
+        EnvironmentUtils.setEnv("AUDIT_FILE_PATH", "/my/path/to/custom.log")
+
+        val config = AuditConfig.fromEnv()
+
+        inside(config) { case AuditConfig(auditFilePath) =>
+          auditFilePath shouldBe "/my/path/to/custom.log"
+        }
+      }
+
       "AUDIT_FILE_PATH is set" in {
         val map = Map("AUDIT_FILE_PATH" -> "/my/path/to/custom.log")
 

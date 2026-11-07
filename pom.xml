@@ -180,7 +180,9 @@
                     <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
                     <junitxml>.</junitxml>
                     <filereports>WDF TestSuite.txt</filereports>
-                    <argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    <!-- add-opens java.base/java.util=ALL-UNNAMED is needed to run UT using env variables -->
+                    <argLine>-javaagent:${org.mockito:mockito-core:jar} --add-opens java.base/java.util=ALL-UNNAMED
+                    </argLine>
                     <!-- Only the suites under .unit (sub-packages included). Integration specs are NOT run by mvn test -->
                     <wildcardSuites>me.bataillec.portfolio.customer.unit</wildcardSuites>
                 </configuration>
