@@ -6,6 +6,7 @@ import me.bataillec.portfolio.customer.domain.Subscription
 import me.bataillec.portfolio.customer.domain.SubscriptionStatus.*
 import org.mockito.Mockito.*
 import org.scalatest.Inside.inside
+import org.scalatest.OptionValues.*
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -34,14 +35,37 @@ class SubscriptionSpec extends AnyWordSpec with Matchers {
       endDate = None
     )
 
-    "be built" in {
-      inside(subscription) { case Subscription(id, customerId, planType, status, startDate, endDate) =>
-        id.toString shouldBe fixedUUIDString1
-        customerId.toString shouldBe fixedUUIDString2
-        planType shouldBe ENTERPRISE
-        status shouldBe ACTIVE
-        startDate.toString shouldBe fixedInstantString
-        endDate shouldBe empty
+    val subscription2 = Subscription(
+      id = fixedUUID1,
+      customerId = fixedUUID2,
+      planType = ENTERPRISE,
+      status = ACTIVE,
+      startDate = Instant.now(clock),
+      endDate = Some(fixedInstant)
+    )
+
+    "be built" when {
+      "minimal inputs" in {
+        inside(subscription) { case Subscription(id, customerId, planType, status, startDate, endDate) =>
+          id.toString shouldBe fixedUUIDString1
+          customerId.toString shouldBe fixedUUIDString2
+          planType shouldBe ENTERPRISE
+          status shouldBe ACTIVE
+          startDate.toString shouldBe fixedInstantString
+          endDate shouldBe empty
+        }
+      }
+
+      "full inputs" in {
+
+        inside(subscription2) { case Subscription(id, customerId, planType, status, startDate, endDate) =>
+          id.toString shouldBe fixedUUIDString1
+          customerId.toString shouldBe fixedUUIDString2
+          planType shouldBe ENTERPRISE
+          status shouldBe ACTIVE
+          startDate.toString shouldBe fixedInstantString
+          endDate.value.toString shouldBe fixedInstantString
+        }
       }
     }
 
@@ -53,8 +77,9 @@ class SubscriptionSpec extends AnyWordSpec with Matchers {
       when(row.getString("plan_type")).thenReturn("ENTERPRISE")
       when(row.getString("status")).thenReturn("ACTIVE")
       when(row.getOffsetDateTime("start_date")).thenReturn(OffsetDateTime.parse(fixedInstantString))
+      when(row.getOffsetDateTime("end_date")).thenReturn(OffsetDateTime.parse(fixedInstantString))
 
-      Subscription.fromRow(row) shouldBe subscription
+      Subscription.fromRow(row) shouldBe subscription2
     }
   }
 }
