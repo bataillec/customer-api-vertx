@@ -11,7 +11,7 @@ trait WithHttpResponse {
   ): HttpResponse =
     HttpResponse(
       statusCode = statusCode,
-      body = JsonSupport.encode(this),
+      body = JsonSupport.encode(this), // FIXME JsonSupport.encode only if contentType == "application/json"
       contentType = contentType,
       headers = headers
     )
