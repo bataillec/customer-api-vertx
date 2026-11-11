@@ -32,7 +32,7 @@ object EventbusUtils {
   }
 
   def addQueryParam(deliveryOptions: DeliveryOptions, rc: RoutingContext, name: String): DeliveryOptions = {
-    val param = Option(rc.request.getParam(name)).getOrElse(throw Exception(s"The query param '$name' is not found in the request'"))
+    val param = Option(rc.request.getParam(name)).getOrElse(throw Exception(s"The query param '$name' is not found in the request"))
     deliveryOptions.addHeader(name, param)
   }
 
