@@ -5,6 +5,7 @@ import io.vertx.core.{Future, Handler, Promise, Vertx}
 import io.vertx.ext.healthchecks.Status
 import me.bataillec.portfolio.customer.Constants.HEALTH_PING_TIMEOUT_MS
 import me.bataillec.portfolio.customer.eventbus.SenderUtils
+import me.bataillec.portfolio.customer.support.EventBusFixture
 import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers.{any, eq as eqTo}
 import org.mockito.Mockito.*
@@ -39,22 +40,6 @@ class SenderUtilsSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll {
 
   private def failed(t: Throwable): Future[Message[String]] =
     Future.failedFuture[Message[String]](t)
-
-  private class ConsumerFixture(completion: Future[Void] = Future.succeededFuture[Void](null)) {
-    val vertx: Vertx                      = mock(classOf[Vertx])
-    val eb: EventBus                      = mock(classOf[EventBus])
-    val consumer: MessageConsumer[String] = mock(classOf[MessageConsumer[String]])
-    private val captor                    = ArgumentCaptor.forClass(classOf[Handler[?]])
-
-    when(vertx.eventBus()).thenReturn(eb)
-    when(consumer.completion()).thenReturn(completion)
-    when(eb.consumer[String](any[String](), any[Handler[Message[String]]]())).thenReturn(consumer)
-
-    def registeredHandler: Handler[Message[String]] = {
-      verify(eb).consumer[String](eqTo(address), captor.capture().asInstanceOf[Handler[Message[String]]])
-      captor.getValue.asInstanceOf[Handler[Message[String]]]
-    }
-  }
 
   // endregion
 
@@ -138,7 +123,7 @@ class SenderUtilsSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll {
 
   "pong (with handler)" should {
     "register a consumer on the given address" in {
-      val f = new ConsumerFixture()
+      val f = new EventBusFixture()
 
       SenderUtils.pong(f.vertx, address, _ => Future.succeededFuture(()))
 
@@ -146,7 +131,7 @@ class SenderUtilsSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll {
     }
 
     "return the consumer registration future" in {
-      val f = new ConsumerFixture()
+      val f = new EventBusFixture()
 
       val result = SenderUtils.pong(f.vertx, address, _ => Future.succeededFuture(()))
 
@@ -155,7 +140,7 @@ class SenderUtilsSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll {
 
     "propagate a registration failure" in {
       val cause = new RuntimeException("registration failed")
-      val f     = new ConsumerFixture(Future.failedFuture[Void](cause))
+      val f     = new EventBusFixture(Future.failedFuture[Void](cause))
 
       val result = SenderUtils.pong(f.vertx, address, _ => Future.succeededFuture(()))
 
@@ -164,29 +149,29 @@ class SenderUtilsSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll {
     }
 
     "reply 'pong' when the handler succeeds" in {
-      val f   = new ConsumerFixture()
+      val f   = new EventBusFixture()
       val msg = mock(classOf[Message[String]])
       SenderUtils.pong(f.vertx, address, _ => Future.succeededFuture(()))
 
-      f.registeredHandler.handle(msg)
+      f.registeredHandler(address).handle(msg)
 
       verify(msg).reply("pong")
       verify(msg, never()).fail(any[Int](), any[String]())
     }
 
     "fail with 503 when the handler fails" in {
-      val f   = new ConsumerFixture()
+      val f   = new EventBusFixture()
       val msg = mock(classOf[Message[String]])
       SenderUtils.pong(f.vertx, address, _ => Future.failedFuture[Unit](new RuntimeException("db down")))
 
-      f.registeredHandler.handle(msg)
+      f.registeredHandler(address).handle(msg)
 
       verify(msg).fail(503, "Postgres unreachable")
       verify(msg, never()).reply(any[AnyRef]())
     }
 
     "pass the received message to the handler" in {
-      val f        = new ConsumerFixture()
+      val f        = new EventBusFixture()
       val msg      = mock(classOf[Message[String]])
       var received = Option.empty[Message[String]]
       SenderUtils.pong(
@@ -198,27 +183,27 @@ class SenderUtilsSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll {
         }
       )
 
-      f.registeredHandler.handle(msg)
+      f.registeredHandler(address).handle(msg)
 
       received.get should be theSameInstanceAs msg
     }
 
     "always use the fixed error text, whatever the cause" in {
-      val f   = new ConsumerFixture()
+      val f   = new EventBusFixture()
       val msg = mock(classOf[Message[String]])
       SenderUtils.pong(f.vertx, address, _ => Future.failedFuture[Unit](new IllegalStateException("another cause")))
 
-      f.registeredHandler.handle(msg)
+      f.registeredHandler(address).handle(msg)
 
       verify(msg).fail(503, "Postgres unreachable")
     }
 
     "let a synchronous handler exception escape (known gap)" in {
-      val f   = new ConsumerFixture()
+      val f   = new EventBusFixture()
       val msg = mock(classOf[Message[String]])
       SenderUtils.pong(f.vertx, address, _ => throw new IllegalStateException("sync failure"))
 
-      an[IllegalStateException] should be thrownBy f.registeredHandler.handle(msg)
+      an[IllegalStateException] should be thrownBy f.registeredHandler(address).handle(msg)
 
       verify(msg, never()).reply(any[AnyRef]())
       verify(msg, never()).fail(any[Int](), any[String]())
@@ -227,20 +212,20 @@ class SenderUtilsSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll {
 
   "pong (plain)" should {
     "register and return the consumer created by the event bus" in {
-      val f = new ConsumerFixture()
+      val f = new EventBusFixture()
 
       val result = SenderUtils.pong(f.vertx, address)
 
-      result should be theSameInstanceAs f.consumer
+      result should be theSameInstanceAs f.consumer(address)
       verify(f.eb).consumer[String](eqTo(address), any[Handler[Message[String]]]())
     }
 
     "reply 'pong'" in {
-      val f   = new ConsumerFixture()
+      val f   = new EventBusFixture()
       val msg = mock(classOf[Message[String]])
       SenderUtils.pong(f.vertx, address)
 
-      f.registeredHandler.handle(msg)
+      f.registeredHandler(address).handle(msg)
 
       verify(msg).reply("pong")
       verify(msg, never()).fail(any[Int](), any[String]())
@@ -250,12 +235,12 @@ class SenderUtilsSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll {
 
     forAll(bodies) { (body: String) =>
       s"reply 'pong' whatever the body is ('$body')" in {
-        val f   = new ConsumerFixture()
+        val f   = new EventBusFixture()
         val msg = mock(classOf[Message[String]])
         when(msg.body()).thenReturn(body)
         SenderUtils.pong(f.vertx, address)
 
-        f.registeredHandler.handle(msg)
+        f.registeredHandler(address).handle(msg)
 
         verify(msg).reply("pong")
       }
