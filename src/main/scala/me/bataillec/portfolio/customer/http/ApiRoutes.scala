@@ -16,7 +16,7 @@ import me.bataillec.portfolio.customer.eventbus.{CustomerSender, SenderUtils}
 import java.util.List as JList
 
 object ApiRoutes {
-  private val problemMediaType = new MediaTypeRegistration {
+  private[customer] val problemMediaType = new MediaTypeRegistration {
     override def createContentAnalyser(contentType: String, content: Buffer, context: ValidationContext): ContentAnalyser =
       MediaTypeRegistration.APPLICATION_JSON.createContentAnalyser(contentType, content, context)
 
