@@ -30,6 +30,6 @@ class AuditSenderImpl(
 }
 
 object AuditSenderImpl {
-  val PRODUCER       = "customer-api"
-  val SCHEMA_VERSION = 1
+  private val PRODUCER       = "customer-api"
+  private val SCHEMA_VERSION = 1
 }

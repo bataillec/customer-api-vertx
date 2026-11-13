@@ -8,7 +8,7 @@ import me.bataillec.portfolio.customer.domain.*
 import me.bataillec.portfolio.customer.domain.DomainError.*
 import me.bataillec.portfolio.customer.eventbus.AuditSender
 import me.bataillec.portfolio.customer.support.FutureUtils.{await, failureOf}
-import org.mockito.ArgumentMatchers.{any, anyInt, eq as eqTo}
+import org.mockito.ArgumentMatchers.{any, anyInt}
 import org.mockito.Mockito.*
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
@@ -32,14 +32,15 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
 
   // region Helpers
 
-  private def ok[T](value: T): Future[T]           = Future.succeededFuture[T](value)
-  private def ko[T](error: Throwable): Future[T]    = Future.failedFuture[T](error)
+  private def ok[T](value: T): Future[T] = Future.succeededFuture[T](value)
+
+  private def ko[T](error: Throwable): Future[T]     = Future.failedFuture[T](error)
   private def locked(status: Option[CustomerStatus]) = ok[Option[CustomerStatus]](status)
 
   private class Fixture(clock: Clock = Clock.fixed(now, ZoneOffset.UTC)) {
-    val storage: Storage       = mock(classOf[Storage])
-    val audit: AuditSender     = mock(classOf[AuditSender])
-    val tx: SqlClient          = mock(classOf[SqlClient])
+    val storage: Storage        = mock(classOf[Storage])
+    val audit: AuditSender      = mock(classOf[AuditSender])
+    val tx: SqlClient           = mock(classOf[SqlClient])
     val ops: CustomerOperations = new CustomerOperations(storage, audit, clock)
 
     when(storage.inTransaction[Any](any[SqlClient => Future[Any]]())).thenAnswer { invocation =>
@@ -457,7 +458,8 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
     "fail with QuotaExceeded, audit it and tell when to retry" in {
       val f = new Fixture
       activeCustomer(f)
-      when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](Some(entitlement.copy(resetDate = Some(Instant.parse("2026-01-15T10:01:00Z"))))))
+      when(f.storage.findEntitlement(f.tx, id, "api_calls"))
+        .thenReturn(ok[Option[Entitlement]](Some(entitlement.copy(resetDate = Some(Instant.parse("2026-01-15T10:01:00Z"))))))
       f.activePlan(Some(PlanType.PRO))
       when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](None))
 

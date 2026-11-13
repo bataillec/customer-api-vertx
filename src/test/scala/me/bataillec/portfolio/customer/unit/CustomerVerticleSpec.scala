@@ -13,9 +13,11 @@ import org.scalatest.BeforeAndAfterEach
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import scala.compiletime.uninitialized
+
 /** The migrations are replaced by a stub, except in the test of the real `runMigrations`. The pool never connects: Postgres is unreachable (port 1). */
 class CustomerVerticleSpec extends AnyWordSpec with Matchers with BeforeAndAfterEach {
-  private var vertx: Vertx = _
+  private var vertx: Vertx = uninitialized
 
   override def beforeEach(): Unit = {
     vertx = Vertx.vertx()

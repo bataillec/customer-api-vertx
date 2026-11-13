@@ -19,7 +19,7 @@ class KafkaAuditWriter(producer: KafkaProducer[String, String], topic: String) e
 }
 
 object KafkaAuditWriter {
-  val KEY_FIELD = "customer_id"
+  private val KEY_FIELD = "customer_id"
 
   def apply(vertx: Vertx, config: AuditConfig): KafkaAuditWriter = {
     val producerConfig = Map(

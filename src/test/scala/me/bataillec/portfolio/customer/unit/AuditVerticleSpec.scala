@@ -8,8 +8,10 @@ import org.scalatest.BeforeAndAfterEach
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
+import scala.compiletime.uninitialized
+
 class AuditVerticleSpec extends AnyWordSpec with Matchers with BeforeAndAfterEach {
-  private var vertx: Vertx = _
+  private var vertx: Vertx = uninitialized
 
   override def beforeEach(): Unit = vertx = Vertx.vertx()
 

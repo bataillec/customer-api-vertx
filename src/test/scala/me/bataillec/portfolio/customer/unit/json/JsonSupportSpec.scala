@@ -9,6 +9,7 @@ import tools.jackson.core.JacksonException
 
 import java.time.Instant
 import java.util.UUID
+import scala.compiletime.uninitialized
 import scala.reflect.ClassTag
 
 class JsonSupportSpec extends AnyWordSpec with Matchers {
@@ -127,6 +128,6 @@ object JsonSupportSpec {
 
   // Only used by the "self-reference" encode test
   final class Node {
-    var next: Node = _
+    var next: Node = uninitialized
   }
 }

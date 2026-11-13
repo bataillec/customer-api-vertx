@@ -10,42 +10,46 @@ import org.flywaydb.core.Flyway
 import org.flywaydb.core.api.output.MigrateResult
 import org.slf4j.LoggerFactory
 
-class CustomerVerticle extends VerticleBase {
-  private val logger     = LoggerFactory.getLogger(getClass)
-  private var pool: Pool = _
+import scala.compiletime.uninitialized
 
-  override def start(): Future[_] = {
+class CustomerVerticle extends VerticleBase {
+  private val logger                   = LoggerFactory.getLogger(getClass)
+  private var pool: Pool               = uninitialized
+  private var auditSender: AuditSender = uninitialized
+  private var operations: CustomerOps  = uninitialized
+
+  override def start(): Future[Unit] = {
     val config = CustomerConfig.fromEnv()
 
     for {
-      _ <- vertx.executeBlocking { () =>
-             migrate(config)
+      _ <- vertx.executeBlocking {
+             () => migrate(config)
+             pool = PgBuilder
+               .pool()
+               .`with`(PoolOptions().setMaxSize(config.pgPoolSize))
+               .connectingTo(
+                 PgConnectOptions()
+                   .setHost(config.pgHost)
+                   .setPort(config.pgPort)
+                   .setDatabase(config.pgDatabase)
+                   .setUser(config.pgUser)
+                   .setPassword(config.pgPassword)
+               )
+               .using(vertx)
+               .build()
+             auditSender = new AuditSenderImpl(vertx.eventBus())
+             operations = new CustomerOperations(new PGStorage(pool), auditSender)
            }
-      _  = pool = PgBuilder
-             .pool()
-             .`with`(PoolOptions().setMaxSize(config.pgPoolSize))
-             .connectingTo(
-               PgConnectOptions()
-                 .setHost(config.pgHost)
-                 .setPort(config.pgPort)
-                 .setDatabase(config.pgDatabase)
-                 .setUser(config.pgUser)
-                 .setPassword(config.pgPassword)
-             )
-             .using(vertx)
-             .build()
-      auditSender: AuditSender = new AuditSenderImpl(vertx.eventBus())
-      operations: CustomerOps = new CustomerOperations(new PGStorage(pool), auditSender)
       _ <- new CustomerHandlerImpl(vertx, operations).handle()
     } yield {
       logger.info("Customer verticle is running")
     }
   }
 
-  override def stop(): Future[_] = {
+  override def stop(): Future[Unit] = {
     if (pool != null) {
       logger.info("Closing the database pool connection...")
-      pool.close()
+      pool.close().mapEmpty()
     } else {
       Future.succeededFuture()
     }

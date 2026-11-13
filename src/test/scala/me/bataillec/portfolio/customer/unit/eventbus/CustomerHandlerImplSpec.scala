@@ -81,9 +81,10 @@ class CustomerHandlerImplSpec extends AnyWordSpec with Matchers {
       replyHeaders: Map[String, String],
       checkBody: String => Unit
   ) {
-    val hasId: Boolean    = headers.exists(_._1 == ID_PATH_PARAM)
-    val hasBody: Boolean  = body != null
-    override def toString = name
+    val hasId: Boolean   = headers.exists(_._1 == ID_PATH_PARAM)
+    val hasBody: Boolean = body != null
+
+    override def toString: String = name
 
     def withId(id: String): Seq[(String, String)] = headers.map { case (ID_PATH_PARAM, _) => ID_PATH_PARAM -> id; case h => h }
   }

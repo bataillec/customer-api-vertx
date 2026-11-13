@@ -6,11 +6,13 @@ import me.bataillec.portfolio.customer.config.AuditConfig
 import me.bataillec.portfolio.customer.eventbus.{AuditHandler, AuditHandlerImpl}
 import org.slf4j.LoggerFactory
 
+import scala.compiletime.uninitialized
+
 class AuditVerticle extends VerticleBase {
   private val logger                = LoggerFactory.getLogger(getClass)
-  private var handler: AuditHandler = _
+  private var handler: AuditHandler = uninitialized
 
-  override def start(): Future[_] = {
+  override def start(): Future[Unit] = {
     val config                   = AuditConfig.fromEnv()
     val auditLogger: AuditLogger = KafkaAuditWriter(vertx, config)
     val operations: AuditOps     = new AuditOperation(auditLogger)
@@ -23,9 +25,9 @@ class AuditVerticle extends VerticleBase {
     handling
   }
 
-  override def stop(): Future[_] = {
+  override def stop(): Future[Unit] = {
     if (handler != null) {
-      handler.close()
+      handler.close().mapEmpty()
     } else Future.succeededFuture()
   }
 }

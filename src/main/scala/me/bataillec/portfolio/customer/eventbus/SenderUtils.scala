@@ -26,7 +26,7 @@ object SenderUtils {
       }
   }
 
-  def pong(vertx: Vertx, address: String, handler: Message[String] => Future[Unit]): Future[_] = {
+  def pong(vertx: Vertx, address: String, handler: Message[String] => Future[Unit]): Future[Unit] = {
     vertx
       .eventBus()
       .consumer[String](
@@ -37,6 +37,7 @@ object SenderUtils {
             .onFailure(_ => msg.fail(503, "Postgres unreachable"))
       )
       .completion()
+      .mapEmpty()
   }
 
   def pong(vertx: Vertx, address: String): MessageConsumer[String] = {

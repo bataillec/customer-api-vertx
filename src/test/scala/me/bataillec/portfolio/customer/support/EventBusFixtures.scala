@@ -55,7 +55,7 @@ class EventBusFixture(defaultCompletion: Future[Void] = Future.succeededFuture[V
 object TestMessages {
 
   /** A mocked [[Message]] with a body and real (case-insensitive) headers. */
-  def message(body: String = null, headers: (String, String)*): Message[String] = {
+  def message(body: String, headers: (String, String)*): Message[String] = {
     val msg = mock(classOf[Message[String]])
     val map = MultiMap.caseInsensitiveMultiMap()
     headers.foreach((k, v) => map.add(k, v))

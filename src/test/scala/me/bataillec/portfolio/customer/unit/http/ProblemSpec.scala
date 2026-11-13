@@ -13,7 +13,7 @@ import me.bataillec.portfolio.customer.domain.PlanType.ENTERPRISE
 import me.bataillec.portfolio.customer.http.{HttpResponse, Problem}
 import me.bataillec.portfolio.customer.unit.http.ProblemSpec.*
 import org.mockito.ArgumentCaptor
-import org.mockito.ArgumentMatchers.*
+import org.mockito.ArgumentMatchers.{anyInt, anyString}
 import org.mockito.Mockito.*
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.matchers.should.Matchers.*

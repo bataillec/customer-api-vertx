@@ -151,10 +151,6 @@ class EventbusUtilsSpec extends AnyWordSpec with Matchers {
   }
 
   "addOptionalQueryParam" should {
-    // only param
-    // param & default
-    // only default
-    // none
     val table = Table(
       ("str", "param", "default", "expected", "size"),
       ("Value - No default", Some("5"), None, "5", 1),
