@@ -25,6 +25,8 @@ class AuditHandlerImplSpec extends AnyWordSpec with Matchers {
 
   private class Fixture(bus: EventBusFixture = new EventBusFixture()) {
     val ops: AuditOps             = mock(classOf[AuditOps])
+    when(ops.audit(any[String]())).thenReturn(Future.succeededFuture[Void]())
+    when(ops.close()).thenReturn(Future.succeededFuture[Void]())
     val handler                   = new AuditHandlerImpl(bus.vertx, ops)
     val eventBus: EventBusFixture = bus
 
@@ -170,6 +172,27 @@ class AuditHandlerImplSpec extends AnyWordSpec with Matchers {
       verify(f.ops).audit("good")
     }
 
+    "log a failed write (failed Future) as an error and keep consuming" in {
+      val logger   = LoggerFactory.getLogger(classOf[AuditHandlerImpl]).asInstanceOf[LogbackLogger]
+      val appender = new ListAppender[ILoggingEvent]()
+      appender.start()
+      logger.addAppender(appender)
+      try {
+        val f = new Fixture()
+        val h = f.started()
+        when(f.ops.audit("bad")).thenReturn(Future.failedFuture[Void](new RuntimeException("broker down")))
+
+        noException should be thrownBy h.handle(TestMessages.message("bad"))
+        h.handle(TestMessages.message("good"))
+
+        val errors = appender.list.asScala.filter(_.getLevel == Level.ERROR)
+        errors should have size 1
+        errors.head.getFormattedMessage should include("bad")
+        errors.head.getThrowableProxy.getMessage shouldBe "broker down"
+        verify(f.ops).audit("good")
+      } finally logger.detachAppender(appender)
+    }
+
     "log the swallowed failure as an error" in {
       val logger   = LoggerFactory.getLogger(classOf[AuditHandlerImpl]).asInstanceOf[LogbackLogger]
       val appender = new ListAppender[ILoggingEvent]()
@@ -199,10 +222,12 @@ class AuditHandlerImplSpec extends AnyWordSpec with Matchers {
   }
 
   "close" should {
-    "delegate to operations.close() once" in {
-      val f = new Fixture()
+    "delegate to operations.close() once and return its future" in {
+      val f      = new Fixture()
+      val closed = Future.succeededFuture[Void]()
+      when(f.ops.close()).thenReturn(closed)
 
-      f.handler.close()
+      f.handler.close() shouldBe theSameInstanceAs(closed)
 
       verify(f.ops, times(1)).close()
     }

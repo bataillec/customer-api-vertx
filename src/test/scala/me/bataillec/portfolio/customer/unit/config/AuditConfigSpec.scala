@@ -9,49 +9,53 @@ import org.scalatest.wordspec.AnyWordSpec
 class AuditConfigSpec extends AnyWordSpec with Matchers {
   "AuditConfig" should {
     "be built" in {
-      val config = AuditConfig("/my/path/to/custom.log")
+      val config = AuditConfig("kafka:9092", "my.topic")
 
-      inside(config) { case AuditConfig(auditFilePath) =>
-        auditFilePath shouldBe "/my/path/to/custom.log"
+      inside(config) { case AuditConfig(servers, topic) =>
+        servers shouldBe "kafka:9092"
+        topic shouldBe "my.topic"
       }
     }
 
     "build fromEnv" when {
       "Use env" in {
-        EnvironmentUtils.setEnv("AUDIT_FILE_PATH", "/my/path/to/custom.log")
+        EnvironmentUtils.setEnv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
+        EnvironmentUtils.setEnv("AUDIT_TOPIC", "my.topic")
 
         val config = AuditConfig.fromEnv()
 
-        inside(config) { case AuditConfig(auditFilePath) =>
-          auditFilePath shouldBe "/my/path/to/custom.log"
+        inside(config) { case AuditConfig(servers, topic) =>
+          servers shouldBe "kafka:9092"
+          topic shouldBe "my.topic"
         }
       }
 
-      "AUDIT_FILE_PATH is set" in {
-        val map = Map("AUDIT_FILE_PATH" -> "/my/path/to/custom.log")
+      "KAFKA_BOOTSTRAP_SERVERS and AUDIT_TOPIC are set" in {
+        val map = Map("KAFKA_BOOTSTRAP_SERVERS" -> "a:1,b:2", "AUDIT_TOPIC" -> "my.topic")
 
         val config = AuditConfig.fromEnv(map)
 
-        inside(config) { case AuditConfig(auditFilePath) =>
-          auditFilePath shouldBe "/my/path/to/custom.log"
+        inside(config) { case AuditConfig(servers, topic) =>
+          servers shouldBe "a:1,b:2"
+          topic shouldBe "my.topic"
         }
       }
 
       "use default" in {
         val config = AuditConfig.fromEnv(Map.empty)
 
-        inside(config) { case AuditConfig(auditFilePath) =>
-          auditFilePath shouldBe "./audit.log"
+        inside(config) { case AuditConfig(servers, topic) =>
+          servers shouldBe "localhost:9092"
+          topic shouldBe "customer.events.v1"
         }
       }
 
       "ignore unrelated var" in {
-        val map = Map("TOTO" -> "tata")
+        val config = AuditConfig.fromEnv(Map("TOTO" -> "tata"))
 
-        val config = AuditConfig.fromEnv(map)
-
-        inside(config) { case AuditConfig(auditFilePath) =>
-          auditFilePath shouldBe "./audit.log"
+        inside(config) { case AuditConfig(servers, topic) =>
+          servers shouldBe "localhost:9092"
+          topic shouldBe "customer.events.v1"
         }
       }
     }

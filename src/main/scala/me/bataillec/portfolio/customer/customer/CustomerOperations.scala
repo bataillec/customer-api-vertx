@@ -90,13 +90,17 @@ class CustomerOperations(storage: Storage, auditSender: AuditSender, clock: Cloc
             case CustomerStatus.ACTIVE                             =>
               storage.findActivePlan(tx, customerId).compose {
                 case Some(plan) if plan == createSubscription.planType => Future.failedFuture(PlanAlreadyActive(customerId, plan))
-                case _                                                 =>
+                case previousPlan                                      =>
                   for {
                     _            <- storage.cancelActiveSubscription(tx, customerId)
                     subscription <- storage.insertActiveSubscription(tx, customerId, createSubscription)
                     entitlements <- storage.applyPlan(tx, customerId, createSubscription, clock.instant())
                   } yield {
-                    auditSender.send("SUBSCRIPTION_CHANGED", customerId, "plan_type" -> createSubscription.planType.toString)
+                    auditSender.send(
+                      "SUBSCRIPTION_CHANGED",
+                      customerId,
+                      ("plan_type" -> createSubscription.planType.toString) +: previousPlan.map(p => "previous_plan_type" -> p.toString).toSeq*
+                    )
                     SubscriptionWithEntitlements.fromSubscriptionAndEntitlements(subscription, entitlements)
                   }
               }

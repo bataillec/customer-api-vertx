@@ -21,7 +21,9 @@ class AuditHandlerImpl(vertx: Vertx, operations: AuditOps) extends AuditHandler 
                (msg: Message[String]) =>
                  logger.info("An audit message has been received")
                  Try(operations.audit(msg.body())) match {
-                   case Success(_)         => ()
+                   case Success(written)   =>
+                     written.onFailure(exception => logger.error("Failed to write the audit event: {}", msg.body(), exception))
+                     ()
                    case Failure(exception) =>
                      logger.error("Failed to write the audit event: {}", msg.body(), exception)
                  }
@@ -30,7 +32,7 @@ class AuditHandlerImpl(vertx: Vertx, operations: AuditOps) extends AuditHandler 
     } yield ()
   }
 
-  override def close(): Unit = {
+  override def close(): Future[Void] = {
     operations.close()
   }
 }

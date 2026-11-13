@@ -5,5 +5,5 @@ import io.vertx.core.Future
 trait AuditHandler {
   def handle(): Future[Unit]
 
-  def close(): Unit
+  def close(): Future[Void]
 }

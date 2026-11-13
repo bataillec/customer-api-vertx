@@ -4,13 +4,15 @@ import me.bataillec.portfolio.customer.Constants.*
 import me.bataillec.portfolio.customer.config.ConfigUtils.MyMap
 
 final case class AuditConfig(
-    auditFilePath: String
+    kafkaBootstrapServers: String,
+    auditTopic: String
 )
 
 object AuditConfig {
   def fromEnv(env: Map[String, String] = sys.env): AuditConfig = {
     AuditConfig(
-      auditFilePath = env.str(AUDIT_FILE_PATH, DEFAULT_AUDIT_FILE_PATH)
+      kafkaBootstrapServers = env.str(KAFKA_BOOTSTRAP_SERVERS, KAFKA_BOOTSTRAP_SERVERS_DEFAULT_VALUE),
+      auditTopic = env.str(AUDIT_TOPIC, AUDIT_TOPIC_DEFAULT_VALUE)
     )
   }
 }
