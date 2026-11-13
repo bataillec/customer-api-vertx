@@ -7,4 +7,11 @@ object EnvironmentUtils {
     val map   = field.get(System.getenv()).asInstanceOf[java.util.Map[java.lang.String, java.lang.String]]
     map.put(key, value)
   }
+
+  def unsetEnv(key: String): Unit = {
+    val field = System.getenv().getClass.getDeclaredField("m")
+    field.setAccessible(true)
+    field.get(System.getenv()).asInstanceOf[java.util.Map[java.lang.String, java.lang.String]].remove(key)
+    ()
+  }
 }

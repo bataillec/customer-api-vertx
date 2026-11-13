@@ -7,6 +7,7 @@ import me.bataillec.portfolio.customer.config.CustomerConfig
 import me.bataillec.portfolio.customer.customer.{CustomerOperations, CustomerOps, PGStorage}
 import me.bataillec.portfolio.customer.eventbus.{AuditSender, AuditSenderImpl, CustomerHandlerImpl}
 import org.flywaydb.core.Flyway
+import org.flywaydb.core.api.output.MigrateResult
 import org.slf4j.LoggerFactory
 
 class CustomerVerticle extends VerticleBase {
@@ -51,11 +52,14 @@ class CustomerVerticle extends VerticleBase {
   }
 
   private def migrate(conf: CustomerConfig): Unit = {
-    val migrationResult = Flyway
+    val migrationResult = runMigrations(conf)
+    logger.info("Applied {} migration(s)", migrationResult.migrationsExecuted)
+  }
+
+  protected def runMigrations(conf: CustomerConfig): MigrateResult =
+    Flyway
       .configure()
       .dataSource(conf.jdbcUrl, conf.pgUser, conf.pgPassword)
       .load()
       .migrate()
-    logger.info("Applied {} migration(s)", migrationResult.migrationsExecuted)
-  }
 }
