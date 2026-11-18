@@ -161,13 +161,14 @@ class CustomerSenderImplSpec extends AnyWordSpec with Matchers {
         f.payload shouldBe "{}"
       }
 
-      s"${e.name}: throw synchronously (no failed Future) and send nothing when the body is not valid JSON" in {
+      s"${e.name}: return a failed Future and send nothing when the body is not valid JSON" in {
         val f = new Fixture()
         when(f.requestBody.asJsonObject()).thenThrow(new DecodeException("bad json"))
 
-        val ex = the[Exception] thrownBy e.call(f.sender, f.rc)
+        val result = e.call(f.sender, f.rc)
 
-        ex.getMessage shouldBe "The given request body could not be parsed as JSON"
+        result.failed() shouldBe true
+        result.cause().getMessage shouldBe "The given request body could not be parsed as JSON"
         verifyNoInteractions(f.eb)
       }
     }
@@ -175,12 +176,13 @@ class CustomerSenderImplSpec extends AnyWordSpec with Matchers {
 
   "methods with a path param" should {
     forAll(table(endpoints.filter(_.hasPathParam))) { (e: Endpoint) =>
-      s"${e.name}: throw synchronously (no failed Future) and send nothing when the id is missing" in {
+      s"${e.name}: return a failed Future and send nothing when the id is missing" in {
         val f = new Fixture().withoutPathParam()
 
-        val ex = the[Exception] thrownBy e.call(f.sender, f.rc)
+        val result = e.call(f.sender, f.rc)
 
-        ex.getMessage shouldBe "The path param 'id' is not found in the path"
+        result.failed() shouldBe true
+        result.cause().getMessage shouldBe "The path param 'id' is not found in the path"
         verifyNoInteractions(f.eb)
       }
     }

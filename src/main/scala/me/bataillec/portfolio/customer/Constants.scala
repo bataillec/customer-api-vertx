@@ -14,7 +14,7 @@ object Constants {
 
   val RETRY_AFTER_HEADER = "Retry-After"
 
-  val ROUTING_ERROR_STATUSES: List[Int] = List(404, 405, 406, 415)
+  val ROUTING_ERROR_STATUSES: List[Int] = List(404, 405)
 
   val ID_PATH_PARAM = "id"
 
@@ -72,8 +72,9 @@ object Constants {
 
   // endregion
 
-  val HEALTH_CHECK_TIMEOUT   = 10000     // HealthChecks procedure
   val HEALTH_PING_TIMEOUT_MS = 4000      // http -> customer/audit
+  // Safety net behind the ping timeout: the ping always answers (OK or KO) before this one fires
+  val HEALTH_CHECK_TIMEOUT   = HEALTH_PING_TIMEOUT_MS + 1000
   val BODY_LIMIT: Int        = 64 * 1024 // in bytes
 
   // region Eventbus addresses

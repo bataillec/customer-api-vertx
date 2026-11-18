@@ -146,14 +146,13 @@ class AuditSenderImplSpec extends AnyWordSpec with Matchers {
         json.getInteger("schema_version") shouldBe 1
       }
 
-      "write a null value as a JSON null" in {
+      "leave out an extra whose value is null" in {
         val f = new Fixture
 
         f.sender.send("CUSTOMER_UPDATED", customerId, "k" -> null)
 
         val json = f.publishedJson
-        json.containsKey("k") shouldBe true
-        json.getValue("k") shouldBe null
+        json.containsKey("k") shouldBe false
       }
 
       "survive an encode / decode round trip of special characters" in {

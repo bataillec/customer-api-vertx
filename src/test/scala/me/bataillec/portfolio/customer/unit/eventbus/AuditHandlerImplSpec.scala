@@ -212,31 +212,40 @@ class AuditHandlerImplSpec extends AnyWordSpec with Matchers {
       } finally logger.detachAppender(appender)
     }
 
-    "let an InterruptedException escape (known gap: it is not NonFatal)" in {
+    "swallow an InterruptedException and restore the interrupt flag" in {
       val f = new Fixture()
       val h = f.started()
       doAnswer(_ => throw new InterruptedException("interrupted")).when(f.ops).audit(any[String]())
 
-      an[InterruptedException] should be thrownBy h.handle(TestMessages.message("event"))
+      try {
+        noException should be thrownBy h.handle(TestMessages.message("event"))
+        Thread.currentThread().isInterrupted shouldBe true
+      } finally Thread.interrupted() // clear the flag so it does not leak into other tests
     }
   }
 
   "close" should {
-    "delegate to operations.close() once and return its future" in {
-      val f      = new Fixture()
-      val closed = Future.succeededFuture[Void]()
-      when(f.ops.close()).thenReturn(closed)
+    "delegate to operations.close() once and succeed" in {
+      val f = new Fixture()
+      when(f.ops.close()).thenReturn(Future.succeededFuture[Void]())
 
-      f.handler.close() shouldBe theSameInstanceAs(closed)
+      f.handler.close().succeeded() shouldBe true
 
       verify(f.ops, times(1)).close()
     }
 
-    "propagate the exception of operations.close()" in {
+    "swallow the exception of operations.close()" in {
       val f = new Fixture()
       doThrow(new IllegalStateException("already closed")).when(f.ops).close()
 
-      an[IllegalStateException] should be thrownBy f.handler.close()
+      f.handler.close().succeeded() shouldBe true
+    }
+
+    "swallow a failed future of operations.close()" in {
+      val f = new Fixture()
+      when(f.ops.close()).thenReturn(Future.failedFuture[Void](new IllegalStateException("broken pipe")))
+
+      f.handler.close().succeeded() shouldBe true
     }
   }
 }

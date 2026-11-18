@@ -15,7 +15,8 @@ class AuditSenderImpl(
 ) extends AuditSender {
   override def send(action: String, id: UUID, extra: (String, String)*): Unit = {
     val event = JsonObject()
-    extra.foreach((k, v) => event.put(k, v))
+    // A null value carries no information: leave the key out rather than write a JSON null
+    extra.foreach((k, v) => if v != null then event.put(k, v))
     // The core fields are written last so that an extra can never overwrite them
     event
       .put("event_id", eventId().toString)

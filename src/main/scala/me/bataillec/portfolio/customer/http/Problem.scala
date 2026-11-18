@@ -20,6 +20,9 @@ object Problem {
     HttpResponse(e.status, body(e.status, e.code, e.title, Some(e.getMessage)).encode(), PROBLEM_CONTENT_TYPE, headers)
   }
 
+  def badRequest(detail: String): HttpResponse =
+    HttpResponse(400, body(400, VALIDATION_FAILED, INVALID_REQUEST, Some(detail)).encode(), PROBLEM_CONTENT_TYPE)
+
   def withTraceId(ctx: RoutingContext, response: HttpResponse): HttpResponse = {
     if (response.contentType == PROBLEM_CONTENT_TYPE) {
       traceId(ctx).fold(response)(id => response.copy(body = JsonObject(response.body).put(TRACE_ID_FIELD, id).encode()))

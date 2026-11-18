@@ -14,6 +14,7 @@ import me.bataillec.portfolio.customer.Constants.*
 import me.bataillec.portfolio.customer.eventbus.{CustomerSender, SenderUtils}
 
 import java.util.List as JList
+import scala.util.control.NonFatal
 
 object ApiRoutes {
   private[customer] val problemMediaType = new MediaTypeRegistration {
@@ -36,7 +37,16 @@ object ApiRoutes {
         builder.rootHandler(BodyHandler.create(false).setBodyLimit(BODY_LIMIT))
 
         def op(id: String)(handler: RoutingContext => Future[Unit]): Unit = {
-          builder.getRoute(id).addHandler(ctx => handler(ctx).onFailure(ctx.fail(_)))
+          builder
+            .getRoute(id)
+            .addHandler { ctx =>
+              // A handler that throws synchronously is turned into a failed Future
+              val result =
+                try handler(ctx)
+                catch { case NonFatal(e) => Future.failedFuture[Unit](e) }
+              // Problem.failureHandler logs the unexpected failures
+              result.onFailure(ctx.fail(_))
+            }
         }
 
         op(createCustomer_ID) { ctx =>
@@ -97,7 +107,7 @@ object ApiRoutes {
         val live = HealthChecks.create(vertx)
         live.register(HTTPSERVER_VERTICLE, promise => promise.complete(Status.OK))
 
-        // Readiness: dependencies,each with a timeout
+        // Readiness: dependencies, each with a timeout
         val ready = HealthChecks.create(vertx)
         ready.register(
           CUSTOMER_VERTICLE,
@@ -132,7 +142,7 @@ object ApiRoutes {
           .handler(ctx =>
             ctx
               .response()
-              .putHeader(CONTENT_TYPE_FIELD, DEFAULT_CONTENT_TYPE)
+              .putHeader(CONTENT_TYPE, DEFAULT_CONTENT_TYPE)
               .end(contract.getRawContract().encode())
           )
 

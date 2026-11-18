@@ -62,6 +62,18 @@ class CustomerHandlerImplSpec extends AnyWordSpec with Matchers {
     captor.getValue
   }
 
+  /** Verifies that the message was answered with a 400 Problem (never failed) and returns its detail. */
+  private def badRequestDetail(msg: Message[String]): String = {
+    val reply = replyOf(msg)
+    reply.statusCode shouldBe 400
+    reply.contentType shouldBe PROBLEM_CONTENT_TYPE
+    val body  = JsonObject(reply.body)
+    body.getString(CODE_FIELD) shouldBe VALIDATION_FAILED
+    body.getString(TITLE_FIELD) shouldBe INVALID_REQUEST
+    verify(msg, never()).fail(anyInt(), any[String]())
+    body.getString(DETAIL_FIELD)
+  }
+
   private def op(id: String, extra: (String, String)*): Seq[(String, String)] = (OPERATION_ID -> id) +: extra
 
   private def listHeaders(limit: String, cursor: Option[String] = None, status: Option[String] = None): Seq[(String, String)] =
@@ -357,43 +369,43 @@ class CustomerHandlerImplSpec extends AnyWordSpec with Matchers {
       val invalidLimits = Table("limit", "abc", "", "2147483648")
 
       forAll(invalidLimits) { (limit: String) =>
-        s"fail with 500 on the non-numeric limit '$limit'" in {
+        s"answer 400 on the non-numeric limit '$limit'" in {
           val f = new Fixture()
 
           val msg = f.deliver(listHeaders(limit))
 
-          failedWith500(msg) should not be empty
+          badRequestDetail(msg) should not be empty
           verifyNoInteractions(f.ops)
         }
       }
 
-      "fail with 500 when the limit is missing" in {
+      "answer 400 when the limit is missing" in {
         val f = new Fixture()
 
         val msg = f.deliver(listHeaders(null))
 
-        failedWith500(msg) should not be empty
+        badRequestDetail(msg) should not be empty
         verifyNoInteractions(f.ops)
       }
 
-      "fail with 500 on an unknown status" in {
+      "answer 400 on an unknown status" in {
         val f = new Fixture()
 
         val msg = f.deliver(listHeaders("10", status = Some("BOGUS")))
 
-        failedWith500(msg) should not be empty
+        badRequestDetail(msg) should not be empty
         verifyNoInteractions(f.ops)
       }
     }
 
-    "reject an invalid request with 500 and never call the operations" when {
+    "reject an invalid request and never call the operations" when {
       forAll(table(operations.filter(_.hasId))) { (o: Operation) =>
-        s"${o.name}: the id is not a UUID" in {
+        s"${o.name}: the id is not a UUID: 400" in {
           val f = new Fixture()
 
           val msg = f.deliver(o.withId("not-a-uuid"), o.body)
 
-          failedWith500(msg) should not be empty
+          badRequestDetail(msg) should not be empty
           verifyNoInteractions(f.ops)
         }
       }
@@ -418,12 +430,12 @@ class CustomerHandlerImplSpec extends AnyWordSpec with Matchers {
         }
       }
 
-      "createCustomer: the body is null" in {
+      "createCustomer: the body is null: 400" in {
         val f = new Fixture()
 
         val msg = f.deliver(op(createCustomer_ID), null)
 
-        failedWith500(msg) should not be empty
+        badRequestDetail(msg) should not be empty
         verifyNoInteractions(f.ops)
       }
 
@@ -435,7 +447,7 @@ class CustomerHandlerImplSpec extends AnyWordSpec with Matchers {
 
           val msg = f.deliver(op(id))
 
-          failedWith500(msg) should include(s"Unknown OperationId $id")
+          failedWith500(msg) shouldBe s"Unknown OperationId $id"
           verifyNoInteractions(f.ops)
         }
       }
@@ -445,7 +457,7 @@ class CustomerHandlerImplSpec extends AnyWordSpec with Matchers {
 
         val msg = f.deliver(Seq.empty)
 
-        failedWith500(msg) should include("No OperationId found")
+        failedWith500(msg) shouldBe "No OperationId found"
         verifyNoInteractions(f.ops)
       }
     }
@@ -486,14 +498,13 @@ class CustomerHandlerImplSpec extends AnyWordSpec with Matchers {
         failedWith500(msg) shouldBe "boom"
       }
 
-      "fail with 500 and a null message when the failure has no message" in {
+      "fail with 500 and the exception text when the failure has no message" in {
         val f = new Fixture()
         when(f.ops.getCustomer(uuid)).thenReturn(Future.failedFuture[Customer](new RuntimeException()))
 
         val msg = f.deliver(headers)
 
-        verify(msg).fail(eqTo(500), isNull[String]())
-        verify(msg, never()).reply(any[AnyRef]())
+        failedWith500(msg) shouldBe "java.lang.RuntimeException"
       }
 
       "fail with 500 and the exception text when the operation throws instead of failing the Future" in {
@@ -502,7 +513,16 @@ class CustomerHandlerImplSpec extends AnyWordSpec with Matchers {
 
         val msg = f.deliver(headers)
 
-        failedWith500(msg) should include("IllegalStateException: db")
+        failedWith500(msg) shouldBe "db"
+      }
+
+      "fail with 500, not 400, when the operation itself throws an IllegalArgumentException" in {
+        val f = new Fixture()
+        when(f.ops.getCustomer(uuid)).thenThrow(new IllegalArgumentException("bug in the operation"))
+
+        val msg = f.deliver(headers)
+
+        failedWith500(msg) shouldBe "bug in the operation"
       }
 
       "fail with 500 when the reply itself throws" in {

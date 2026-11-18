@@ -6,8 +6,15 @@ import io.vertx.ext.web.RoutingContext
 import me.bataillec.portfolio.customer.Constants.*
 import me.bataillec.portfolio.customer.eventbus.EventbusUtils.*
 
+import scala.util.control.NonFatal
+
 class CustomerSenderImpl(eventbus: EventBus) extends CustomerSender {
-  override def createCustomer(rc: RoutingContext): Future[String] = {
+  // An invalid body or a missing path param is reported as a failed Future, never as a synchronous throw
+  private def guarded(f: => Future[String]): Future[String] =
+    try f
+    catch { case NonFatal(e) => Future.failedFuture[String](e) }
+
+  override def createCustomer(rc: RoutingContext): Future[String] = guarded {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, createCustomer_ID)
     val data            = getBodyAsJson(rc).encode()
 
@@ -16,7 +23,7 @@ class CustomerSenderImpl(eventbus: EventBus) extends CustomerSender {
     }
   }
 
-  override def getCustomers(rc: RoutingContext): Future[String] = {
+  override def getCustomers(rc: RoutingContext): Future[String] = guarded {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, listCustomers_ID)
 
     addOptionalQueryParam(deliveryOptions, rc, LIMIT_QUERY_PARAM, Some(LIMIT_DEFAULT_VALUE))
@@ -28,7 +35,7 @@ class CustomerSenderImpl(eventbus: EventBus) extends CustomerSender {
     }
   }
 
-  override def getPlans(rc: RoutingContext): Future[String] = {
+  override def getPlans(rc: RoutingContext): Future[String] = guarded {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, listPlans_ID)
 
     eventbus.sendFuture[String](CUSTOMER_ADDRESS, None, deliveryOptions).map { (r: Message[String]) =>
@@ -36,7 +43,7 @@ class CustomerSenderImpl(eventbus: EventBus) extends CustomerSender {
     }
   }
 
-  override def getCustomer(rc: RoutingContext): Future[String] = {
+  override def getCustomer(rc: RoutingContext): Future[String] = guarded {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, getCustomer_ID)
 
     addPathParam(deliveryOptions, rc, ID_PATH_PARAM)
@@ -46,7 +53,7 @@ class CustomerSenderImpl(eventbus: EventBus) extends CustomerSender {
     }
   }
 
-  override def updateCustomer(rc: RoutingContext): Future[String] = {
+  override def updateCustomer(rc: RoutingContext): Future[String] = guarded {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, updateCustomer_ID)
     val data            = getBodyAsJson(rc).encode()
     addPathParam(deliveryOptions, rc, ID_PATH_PARAM)
@@ -56,7 +63,7 @@ class CustomerSenderImpl(eventbus: EventBus) extends CustomerSender {
     }
   }
 
-  override def subscribe(rc: RoutingContext): Future[String] = {
+  override def subscribe(rc: RoutingContext): Future[String] = guarded {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, subscribe_ID)
     addPathParam(deliveryOptions, rc, ID_PATH_PARAM)
     val data            = getBodyAsJson(rc).encode()
@@ -66,7 +73,7 @@ class CustomerSenderImpl(eventbus: EventBus) extends CustomerSender {
     }
   }
 
-  override def getSubscriptions(rc: RoutingContext): Future[String] = {
+  override def getSubscriptions(rc: RoutingContext): Future[String] = guarded {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, listSubscriptions_ID)
 
     addPathParam(deliveryOptions, rc, ID_PATH_PARAM)
@@ -76,7 +83,7 @@ class CustomerSenderImpl(eventbus: EventBus) extends CustomerSender {
     }
   }
 
-  override def getEntitlements(rc: RoutingContext): Future[String] = {
+  override def getEntitlements(rc: RoutingContext): Future[String] = guarded {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, listEntitlements_ID)
 
     addPathParam(deliveryOptions, rc, ID_PATH_PARAM)
@@ -86,7 +93,7 @@ class CustomerSenderImpl(eventbus: EventBus) extends CustomerSender {
     }
   }
 
-  override def consumeEntitlement(rc: RoutingContext): Future[String] = {
+  override def consumeEntitlement(rc: RoutingContext): Future[String] = guarded {
     val deliveryOptions = new DeliveryOptions().addHeader(OPERATION_ID, consumeEntitlement_ID)
     addPathParam(deliveryOptions, rc, ID_PATH_PARAM)
     val data            = getBodyAsJson(rc).encode()

@@ -219,13 +219,13 @@ class ApiRoutesSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll wit
         res.body should not include "secret internal detail"
       }
 
-      "the sender throws synchronously: 500 (known gap, only works because Vert.x Web catches the exception)" in {
+      "the sender throws synchronously: 500 (op turns it into a failed Future)" in {
         when(sender.getPlans(any[RoutingContext]())).thenThrow(new RuntimeException("boom"))
 
         assertProblem(call("GET", "/plans"), 500, INTERNAL_ERROR)
       }
 
-      "the sender replies with something that is not JSON: 500 (known gap, nothing guards makeResponse)" in {
+      "the sender replies with something that is not JSON: 500 (makeResponse failure is a failed Future)" in {
         when(sender.getPlans(any[RoutingContext]())).thenReturn(Future.succeededFuture("not json"))
 
         assertProblem(call("GET", "/plans"), 500, INTERNAL_ERROR)
@@ -277,15 +277,15 @@ class ApiRoutesSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll wit
         verifyNoInteractions(sender)
       }
 
-      // Known gap: the OpenAPI router does not enforce Accept, so the 406 error handler is never reached for contract routes.
-      "the Accept header is not supported: still served (known gap, no 406)" in {
+      // By design: the OpenAPI router does not enforce Accept, so there is no 406 handler.
+      "the Accept header is not enforced: still served (no 406)" in {
         when(sender.getCustomers(any[RoutingContext]())).thenReturn(Future.succeededFuture(HttpResponse(200).toJson.encode()))
 
         call("GET", "/customers", headers = Map("Accept" -> "text/plain")).status shouldBe 200
       }
 
-      // Known gap: the contract validation rejects the body first, so this is a 400 and the 415 error handler is never reached.
-      "the Content-Type is not supported: 400 from the contract validation (known gap, no 415)" in {
+      // By design: the contract validation rejects the body first, so this is a 400 and there is no 415 handler.
+      "the Content-Type is not supported: 400 from the contract validation (no 415)" in {
         assertProblem(call("POST", "/customers", Some("email=a@b.com"), Map("Content-Type" -> "text/plain")), 400, VALIDATION_FAILED)
 
         verifyNoInteractions(sender)
@@ -309,13 +309,12 @@ class ApiRoutesSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll wit
     // region G. /openapi.json
 
     "serve the contract on /openapi.json" when {
-      // Known gap: ApiRoutes sets the header named CONTENT_TYPE_FIELD ("contentType", the JSON field name) instead of CONTENT_TYPE ("Content-Type").
-      "answer 200 but with a wrong 'contentType' header instead of Content-Type (known gap)" in {
+      "answer 200 with a Content-Type header and no stray 'contentType' header" in {
         val res = call("GET", "/openapi.json")
 
         res.status shouldBe 200
-        res.headers.contains("Content-Type") shouldBe false
-        res.headers.get(CONTENT_TYPE_FIELD) shouldBe DEFAULT_CONTENT_TYPE
+        res.contentType should startWith(DEFAULT_CONTENT_TYPE)
+        res.headers.contains(CONTENT_TYPE_FIELD) shouldBe false
       }
 
       "return the OpenAPI document with the 9 operations" in {
