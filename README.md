@@ -15,7 +15,7 @@ Prerequisites:
 
 - Java 25 and Maven 3.10 (`mise install` sets both up from `mise.toml`)
 - A PostgreSQL database. The defaults are host `localhost:5432`, database, user and password all `customers`. Override with `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD` and `PG_POOL_SIZE`.
-- A Kafka broker for the audit topic: `podman compose up -d` (or `docker compose up -d`) starts one on `localhost:9092`.
+- A Kafka broker for the audit topic, reachable at `KAFKA_BOOTSTRAP_SERVERS` (default `localhost:9092`). To skip the manual setup, run everything with Docker instead (see below).
 
 The schema is created by Flyway when the customer verticle starts, so there is nothing to run by hand.
 
@@ -29,17 +29,17 @@ Then start the three processes described in the next section.
 
 ## Running with Docker
 
-`compose.full.yaml` builds one image and starts the whole platform: Postgres, Kafka (KRaft), one HTTP verticle, two customer verticles and one audit verticle.
+`compose.yaml` builds one image and starts the whole platform: Postgres, Kafka (KRaft), one HTTP verticle, two customer verticles and one audit verticle.
 
 ```
-podman compose -f compose.full.yaml up -d --build      # or: docker compose -f compose.full.yaml up -d --build
+podman compose up -d --build      # or: docker compose up -d --build
 curl localhost:8080/health/ready
 ```
 
 - Set `HTTP_PORT` to publish the API on another host port (`HTTP_PORT=18081 podman compose ...`).
 - The tests are not run during the image build (they need Testcontainers). Run `mvn test` separately.
 - Hazelcast (5701) is not published: the verticles find each other by service name on the compose network, using `docker/cluster.xml`.
-- `podman compose -f compose.full.yaml down -v` stops everything and deletes the data.
+- `podman compose down -v` stops everything and deletes the data.
 
 ## Running without Docker
 
@@ -63,7 +63,7 @@ Audit events are written to a Kafka topic as platform event envelopes v1 (`event
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka brokers |
 | `AUDIT_TOPIC` | `customer.events.v1` | Topic receiving the audit events |
 
-Start a local broker with `podman compose up -d`, then read the topic with:
+With the Docker stack running, read the topic with:
 
 ```
 podman compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic customer.events.v1 --from-beginning --property print.key=true
