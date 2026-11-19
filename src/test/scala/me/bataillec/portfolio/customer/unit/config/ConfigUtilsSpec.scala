@@ -46,6 +46,12 @@ class ConfigUtilsSpec extends AnyWordSpec with Matchers {
 
         map.int("last_key", 10) shouldBe 10
       }
+
+      "value is not an integer" in {
+        val e = the[IllegalArgumentException] thrownBy Map("port" -> "abc").int("port", 1)
+
+        e.getMessage shouldBe "Invalid integer for port: 'abc'"
+      }
     }
   }
 }
