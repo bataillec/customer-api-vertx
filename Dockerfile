@@ -5,7 +5,7 @@ COPY pom.xml .
 COPY src ./src
 # dependency:go-offline misses the Scala compiler bridge, so the build stays online and the
 # local repository is kept in a cache mount instead
-# The tests need Docker for Testcontainers, which a build stage doesn't have: they run in CI instead
+# The integration tests need Docker for Testcontainers, which a build stage doesn't have: run mvn verify in CI instead
 RUN --mount=type=cache,target=/root/.m2 mvn -B -q package -DskipTests
 
 FROM eclipse-temurin:25-jre

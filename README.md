@@ -19,7 +19,7 @@ Prerequisites:
 
 The schema is created by Flyway when the customer verticle starts, so there is nothing to run by hand.
 
-Build the shaded jar (the tests start Postgres with Testcontainers, so they need a running Docker or Podman; add `-DskipTests` to skip them):
+Build the shaded jar. This runs the unit tests only, which need no database and no container (see [Testing](#testing)):
 
 ```
 mvn package
@@ -41,7 +41,7 @@ curl localhost:8080/health/ready
   - **Kafka UI** at http://localhost:8090 shows the `customer.events.v1` audit topic and its messages.
 - Set `HTTP_PORT`, `PGADMIN_PORT` or `KAFKA_UI_PORT` to publish a service on another host port (`HTTP_PORT=18081 podman compose ...`).
 - Postgres 18 stores its data differently, so it uses a new volume, `pgdata18`. The data of the former Postgres 17 `pgdata` volume stays untouched and unused: delete it with `podman volume rm customer-api-vertx_pgdata` once you don't need it.
-- The tests are not run during the image build (they need Testcontainers). Run `mvn test` separately.
+- The tests are not run during the image build. Run them separately (see [Testing](#testing)).
 - Hazelcast (5701) is not published: the verticles find each other by service name on the compose network, using `docker/cluster.xml`.
 - `podman compose down -v` stops everything and deletes the data.
 
@@ -57,6 +57,56 @@ java -cp $CP io.vertx.launcher.application.VertxApplication me.bataillec.portfol
 ```
 
 `GET /health/ready` is UP once the three verticles have joined the cluster. `GET /openapi.json` serves the API contract.
+
+## Testing
+
+There are two kinds of tests, and they run at different Maven phases:
+
+| Command | Runs | Needs |
+|---|---|---|
+| `mvn test` | the unit tests (`src/test/.../unit`), with mocks | nothing but the JDK |
+| `mvn verify` | the unit tests, then the integration tests (`src/test/.../integration`), then the 85% coverage gate | a Docker or Podman engine |
+| `mvn verify -DskipITs` | the unit tests and the coverage gate, without the integration tests | nothing but the JDK |
+
+`mvn package` runs the unit tests only: the integration tests belong to the later `integration-test` phase. The coverage gate counts the unit tests only.
+
+### Integration tests
+
+They use [Testcontainers](https://testcontainers.com/) to start the real things, with the same images as `compose.yaml` (`postgres:18.7` and `apache/kafka:4.4.0`). The containers start once per JVM and the suites share them, each with a database or topic of its own. `ResilienceIT` starts containers of its own because it pauses them.
+
+| Suite | What it checks |
+|---|---|
+| `MigrationsIT` | Flyway V1 to V6 on an empty database, the seeded quotas, the email uniqueness, and the data fix of V4 |
+| `PGStorageIT` | the real SQL of `PGStorage`: pagination, plan changes, quota reset, and concurrent consumption |
+| `CustomerApiIT` | the whole app (HTTP, event bus, Postgres, Kafka) through its public API: lifecycle rules, validation, problem responses, health, `/openapi.json` |
+| `AuditKafkaIT` | the audit events on the Kafka topic: envelope, key, content, no event on a failed request, ordering per customer |
+| `ResilienceIT` | the app with Postgres or Kafka paused: health reporting, 504 instead of a hang, recovery |
+| `ClusterIT` | three Hazelcast nodes with the real `cluster.xml`: load spreading, a quota exact across two writers, failover |
+
+The suites run one after the other, in a single JVM. A full `mvn verify` takes 3 to 4 minutes (a little more the first time, while the images are pulled).
+
+Kafka audit delivery is deliberately fire-and-forget (no outbox), so the audit tests poll the topic with a timeout and never assert guaranteed delivery.
+
+`ClusterIT` joins its nodes through the fixed Hazelcast ports 5701 to 5703 of `cluster.xml`: free them first (the Docker stack does not publish them, but another local Hazelcast node would).
+
+### With Podman
+
+Testcontainers needs to find the engine, and the Ryuk cleanup container does not work with a rootless Podman socket:
+
+```
+systemctl --user enable --now podman.socket
+export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
+export TESTCONTAINERS_RYUK_DISABLED=true
+mvn verify
+```
+
+With Ryuk disabled, Testcontainers removes the containers itself when the JVM exits. After a crashed run, list the leftovers with `podman ps`.
+
+Without these variables the integration suites abort. Check for `Run completed` in the Maven output to be sure the tests actually ran: a compile failure ends the build before them, and it can be a transient one if an IDE compiles the same `target/classes` at the same time (a retry fixes it).
+
+### In CI
+
+The runner needs a Docker engine (a hosted `ubuntu-latest` runner has one). Run `mvn verify`, and cache the two images and the Maven repository between runs to save the pull. Do not set `TESTCONTAINERS_RYUK_DISABLED` there: Ryuk is the safe cleanup when it works. Keep `mvn verify -DskipITs` for a fast first job if the pipeline has several.
 
 ## Audit
 
