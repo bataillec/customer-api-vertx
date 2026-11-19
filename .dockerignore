@@ -1,0 +1,10 @@
+target/
+.git/
+.idea/
+.env
+flyway.conf
+requests/
+.bloop/
+.metals/
+.openidea/
+*.md

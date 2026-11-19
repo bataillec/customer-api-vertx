@@ -42,7 +42,7 @@ object ApiRoutes {
           builder
             .getRoute(id)
             .addHandler { ctx =>
-              // A handler that throws synchronously is turned into a failed Future
+              // A synchronous throw must reach the failure handler like an asynchronous failure does
               val result =
                 try handler(ctx)
                 catch { case NonFatal(e) => Future.failedFuture[Unit](e) }
@@ -149,7 +149,7 @@ object ApiRoutes {
           }
         )
 
-        // expose the spec as JSON
+        // Built from the same contract that validates requests, so the published spec can't drift from it
         router
           .get("/openapi.json")
           .handler(ctx =>
@@ -169,7 +169,7 @@ object ApiRoutes {
 
   private def allowedMethods(contract: OpenAPIContract): List[(java.util.regex.Pattern, List[String])] =
     contract.getPaths.asScala.toList.map { path =>
-      // "/customers/{id}" -> "/customers/[^/]+"
+      // The contract holds path templates but a 405 is raised for a concrete path, hence the regex
       val regex   = path.getName.split("\\{[^}]*\\}", -1).map(java.util.regex.Pattern.quote).mkString("[^/]+")
       val methods = path.getOperations.asScala.toList.map(_.getHttpMethod.name()).distinct.sorted
       (java.util.regex.Pattern.compile(regex), methods)
