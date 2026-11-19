@@ -9,7 +9,8 @@ import java.util.UUID
 /** A Postgres and a Kafka container, each started on first use. The images match `compose.yaml`, so the tests run
   * against what is deployed.
   *
-  * Ryuk is disabled on this machine (rootless Podman), so a JVM shutdown hook stops the containers.
+  * The containers are never stopped explicitly: Ryuk removes them when it is enabled, and Testcontainers' own JVM
+  * hook does when it is disabled (rootless Podman here).
   */
 class Containers {
   private val PostgresImage = "postgres:18.7"
@@ -20,14 +21,12 @@ class Containers {
   lazy val postgres: PostgreSQLContainer = {
     val container = new PostgreSQLContainer(PostgresImage)
     container.start()
-    sys.addShutdownHook(container.stop())
     container
   }
 
   lazy val kafka: KafkaContainer = {
     val container = new KafkaContainer(KafkaImage)
     container.start()
-    sys.addShutdownHook(container.stop())
     container
   }
 
