@@ -22,7 +22,13 @@ final case class ApiResponse(status: Int, headers: Map[String, String], body: St
 class ApiClient(vertx: Vertx, port: Int) {
   private val client = WebClient.create(vertx)
 
-  def send(method: HttpMethod, path: String, body: Option[String] = None, headers: Map[String, String] = Map.empty): ApiResponse = {
+  def send(
+      method: HttpMethod,
+      path: String,
+      body: Option[String] = None,
+      headers: Map[String, String] = Map.empty,
+      timeoutSeconds: Int = 20
+  ): ApiResponse = {
     val request = client.request(method, port, "localhost", path)
     headers.foreach((k, v) => request.putHeader(k, v))
     val sent = body match {
@@ -31,7 +37,7 @@ class ApiClient(vertx: Vertx, port: Int) {
         request.sendBuffer(Buffer.buffer(b))
       case None    => request.send()
     }
-    val response = await(sent, 20)
+    val response = await(sent, timeoutSeconds)
     val received = response.headers().entries().toArray.map(e => e.asInstanceOf[java.util.Map.Entry[String, String]]).map(e => e.getKey.toLowerCase -> e.getValue).toMap
     ApiResponse(response.statusCode(), received, Option(response.bodyAsString()).getOrElse(""))
   }

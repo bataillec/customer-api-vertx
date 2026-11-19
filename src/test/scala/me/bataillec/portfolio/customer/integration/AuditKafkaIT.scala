@@ -1,7 +1,7 @@
 package me.bataillec.portfolio.customer.integration
 
 import io.vertx.core.json.JsonObject
-import me.bataillec.portfolio.customer.support.{AppFixture, AuditEvent, AuditProbe, ContainersSupport}
+import me.bataillec.portfolio.customer.support.{AppFixture, AuditEvent, AuditProbe}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
@@ -18,7 +18,7 @@ class AuditKafkaIT extends AnyWordSpec with Matchers with AppFixture {
 
   override protected def beforeAll(): Unit = {
     super.beforeAll()
-    probe = new AuditProbe(ContainersSupport.kafkaBootstrap, auditTopic)
+    probe = new AuditProbe(containers.kafkaBootstrap, auditTopic)
   }
 
   override protected def afterAll(): Unit = {

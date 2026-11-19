@@ -6,12 +6,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 import java.sql.{Connection, DriverManager}
 import java.util.UUID
 
-/** The containers shared by every integration suite of the JVM, started once on first use. The images match
-  * `compose.yaml`, so the tests run against what is deployed.
+/** A Postgres and a Kafka container, each started on first use. The images match `compose.yaml`, so the tests run
+  * against what is deployed.
   *
   * Ryuk is disabled on this machine (rootless Podman), so a JVM shutdown hook stops the containers.
   */
-object ContainersSupport {
+class Containers {
   private val PostgresImage = "postgres:18.7"
   private val KafkaImage    = "apache/kafka:4.4.0"
 
@@ -49,4 +49,24 @@ object ContainersSupport {
   }
 
   def connection(database: String): Connection = DriverManager.getConnection(jdbcUrl(database), pgUser, pgPassword)
+
+  // Pausing freezes the container but keeps its mapped ports, which a restart would change. Clients see a service
+  // that hangs, not one that refuses connections.
+  def pausePostgres(): Unit   = pause(postgres)
+  def unpausePostgres(): Unit = unpause(postgres)
+  def pauseKafka(): Unit      = pause(kafka)
+  def unpauseKafka(): Unit    = unpause(kafka)
+
+  private def pause(container: org.testcontainers.containers.GenericContainer[?]): Unit = {
+    container.getDockerClient.pauseContainerCmd(container.getContainerId).exec()
+    ()
+  }
+
+  private def unpause(container: org.testcontainers.containers.GenericContainer[?]): Unit = {
+    container.getDockerClient.unpauseContainerCmd(container.getContainerId).exec()
+    ()
+  }
 }
+
+/** The containers shared by every integration suite of the JVM. */
+object ContainersSupport extends Containers

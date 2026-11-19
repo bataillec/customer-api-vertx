@@ -12,16 +12,19 @@ import scala.compiletime.uninitialized
   * The data tables are emptied before each test; `plan_quotas`, seeded by the migrations, is kept.
   */
 trait PostgresFixture extends BeforeAndAfterAll with BeforeAndAfterEach { this: Suite =>
+  /** The containers the suite runs on: the shared ones, unless a suite needs its own. */
+  protected def containers: Containers = ContainersSupport
+
   protected var database: String = uninitialized
   protected var vertx: Vertx     = uninitialized
   protected var pool: Pool       = uninitialized
 
   override protected def beforeAll(): Unit = {
     super.beforeAll()
-    database = ContainersSupport.newDatabase(getClass.getSimpleName.toLowerCase)
+    database = containers.newDatabase(getClass.getSimpleName.toLowerCase)
     Flyway
       .configure()
-      .dataSource(ContainersSupport.jdbcUrl(database), ContainersSupport.pgUser, ContainersSupport.pgPassword)
+      .dataSource(containers.jdbcUrl(database), containers.pgUser, containers.pgPassword)
       .load()
       .migrate()
     vertx = Vertx.vertx()
@@ -30,11 +33,11 @@ trait PostgresFixture extends BeforeAndAfterAll with BeforeAndAfterEach { this: 
       .`with`(PoolOptions().setMaxSize(16))
       .connectingTo(
         PgConnectOptions()
-          .setHost(ContainersSupport.pgHost)
-          .setPort(ContainersSupport.pgPort)
+          .setHost(containers.pgHost)
+          .setPort(containers.pgPort)
           .setDatabase(database)
-          .setUser(ContainersSupport.pgUser)
-          .setPassword(ContainersSupport.pgPassword)
+          .setUser(containers.pgUser)
+          .setPassword(containers.pgPassword)
       )
       .using(vertx)
       .build()
@@ -54,7 +57,7 @@ trait PostgresFixture extends BeforeAndAfterAll with BeforeAndAfterEach { this: 
 
   /** Runs a statement over plain JDBC, to arrange or inspect the data behind the code under test. */
   protected def sql(statement: String): Unit = {
-    val conn = ContainersSupport.connection(database)
+    val conn = containers.connection(database)
     try conn.createStatement().execute(statement)
     finally conn.close()
     ()

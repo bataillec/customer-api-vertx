@@ -25,17 +25,17 @@ trait AppFixture extends PostgresFixture { this: Suite =>
     val port = freePort()
     auditTopic = s"customer.events.${UUID.randomUUID()}"
     Map(
-      "PG_HOST"                 -> ContainersSupport.pgHost,
-      "PG_PORT"                 -> ContainersSupport.pgPort.toString,
+      "PG_HOST"                 -> containers.pgHost,
+      "PG_PORT"                 -> containers.pgPort.toString,
       "PG_DATABASE"             -> database,
-      "PG_USER"                 -> ContainersSupport.pgUser,
-      "PG_PASSWORD"             -> ContainersSupport.pgPassword,
-      "KAFKA_BOOTSTRAP_SERVERS" -> ContainersSupport.kafkaBootstrap,
+      "PG_USER"                 -> containers.pgUser,
+      "PG_PASSWORD"             -> containers.pgPassword,
+      "KAFKA_BOOTSTRAP_SERVERS" -> containers.kafkaBootstrap,
       "AUDIT_TOPIC"             -> auditTopic,
       "HTTP_PORT"               -> port.toString
     ).foreach((k, v) => EnvironmentUtils.setEnv(k, v))
 
-    AuditProbe.createTopic(ContainersSupport.kafkaBootstrap, auditTopic, AuditPartitions)
+    AuditProbe.createTopic(containers.kafkaBootstrap, auditTopic, AuditPartitions)
 
     await(vertx.deployVerticle(new CustomerVerticle), 60)
     await(vertx.deployVerticle(new AuditVerticle), 60)
