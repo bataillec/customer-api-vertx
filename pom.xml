@@ -34,6 +34,10 @@
         <maven-enforcer-plugin.version>3.7.0</maven-enforcer-plugin.version>
         <requireMavenVersion.version>3.8.1</requireMavenVersion.version>
         <testcontainers-scala.version>0.44.1</testcontainers-scala.version>
+        <!-- Must match the core version pulled in by testcontainers-scala (checked in the spike: 2.0.3) -->
+        <testcontainers.version>2.0.3</testcontainers.version>
+        <!-- -DskipITs skips the Testcontainers specs run by mvn verify -->
+        <skipITs>false</skipITs>
 
         <mockito.version>5.24.0</mockito.version>
         <scoverage.plugin.version>2.1.5</scoverage.plugin.version>
@@ -143,6 +147,13 @@
             <version>${testcontainers-scala.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- Apache Kafka image support (KafkaContainer for apache/kafka); the scala wrapper only covers Confluent's -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-kafka</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
 
         <dependency>
             <groupId>org.mockito</groupId>
@@ -197,6 +208,18 @@
                         <goals>
                             <goal>test</goal>
                         </goals>
+                    </execution>
+                    <!-- Integration specs (Testcontainers: Postgres and Kafka), run by mvn verify only -->
+                    <execution>
+                        <id>integration-test</id>
+                        <phase>integration-test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <wildcardSuites>me.bataillec.portfolio.customer.integration</wildcardSuites>
+                            <skipTests>${skipITs}</skipTests>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
