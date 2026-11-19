@@ -37,19 +37,31 @@ trait AppFixture extends PostgresFixture { this: Suite =>
 
     AuditProbe.createTopic(containers.kafkaBootstrap, auditTopic, AuditPartitions)
 
-    await(vertx.deployVerticle(new CustomerVerticle), 60)
-    await(vertx.deployVerticle(new AuditVerticle), 60)
-    await(vertx.deployVerticle(new HttpServerVerticle), 60)
+    startApp(port)
 
     api = new ApiClient(vertx, port)
     awaitReady()
   }
 
+  /** Deploys the app, reading its configuration from the environment set above. The default is the three verticles on
+    * the suite's own non-clustered Vert.x; a suite can override it to run the app another way.
+    */
+  protected def startApp(port: Int): Unit = {
+    await(vertx.deployVerticle(new CustomerVerticle), 60)
+    await(vertx.deployVerticle(new AuditVerticle), 60)
+    await(vertx.deployVerticle(new HttpServerVerticle), 60)
+  }
+
+  /** Stops what `startApp` started, when it is not the suite's own Vert.x. */
+  protected def stopApp(): Unit = ()
+
   override protected def afterAll(): Unit = {
     try if (api != null) api.close()
     finally {
-      try super.afterAll() // closes Vert.x, hence the verticles
-      finally envKeys.foreach(EnvironmentUtils.unsetEnv)
+      try {
+        try stopApp()
+        finally super.afterAll() // closes Vert.x, hence the verticles
+      } finally envKeys.foreach(EnvironmentUtils.unsetEnv)
     }
   }
 

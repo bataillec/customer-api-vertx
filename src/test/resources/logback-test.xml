@@ -11,6 +11,7 @@
     <logger name="org.apache.kafka" level="WARN"/>
     <logger name="org.flywaydb" level="WARN"/>
     <logger name="io.netty" level="WARN"/>
+    <logger name="com.hazelcast" level="WARN"/>
 
     <root level="INFO">
         <appender-ref ref="STDOUT"/>
