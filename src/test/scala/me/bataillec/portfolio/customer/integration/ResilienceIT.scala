@@ -55,15 +55,11 @@ class ResilienceIT extends AnyWordSpec with Matchers with AppFixture {
       } finally containers.unpauseKafka()
     }
 
-    // KNOWN GAP: KafkaAuditWriter.health() is producer.partitionsFor(topic), which the Kafka client answers from its
-    // cached metadata, so /health/ready stays UP while the broker no longer answers. The health check needs a call
-    // that really reaches the broker (for example an AdminClient describeCluster with a timeout).
-    // pendingUntilFixed turns this test red once that is fixed: then remove the marker.
-    "report the audit as DOWN on /health/ready, then recover" in pendingUntilFixed {
+    "report the audit as DOWN on /health/ready, then recover" in {
       awaitReady(200)
       containers.pauseKafka()
       try {
-        val (ready, _) = awaitReady(503, timeoutSeconds = 20)
+        val (ready, _) = awaitReady(503, timeoutSeconds = 30)
         checks(ready)("audit-verticle") shouldBe "DOWN"
         checks(ready)("customer-verticle") shouldBe "UP"
         api.get("/health/live").status shouldBe 200

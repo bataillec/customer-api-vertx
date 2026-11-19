@@ -1,6 +1,7 @@
 package me.bataillec.portfolio.customer.unit.audit
 
 import io.vertx.core.{Future, Vertx}
+import io.vertx.kafka.admin.{ClusterDescription, KafkaAdminClient}
 import io.vertx.kafka.client.producer.{KafkaProducer, KafkaProducerRecord, RecordMetadata}
 import me.bataillec.portfolio.customer.audit.KafkaAuditWriter
 import me.bataillec.portfolio.customer.config.AuditConfig
@@ -18,12 +19,13 @@ class KafkaAuditWriterSpec extends AnyWordSpec with Matchers {
     val producer = mock(classOf[KafkaProducer[String, String]])
     when(producer.send(any[KafkaProducerRecord[String, String]]()))
       .thenReturn(Future.succeededFuture[RecordMetadata](null))
-    (producer, new KafkaAuditWriter(producer, "audit.topic"))
+    val admin    = mock(classOf[KafkaAdminClient])
+    (producer, admin, new KafkaAuditWriter(producer, admin, "audit.topic"))
   }
 
   "audit" should {
     "send the message to the topic, keyed by customer_id" in {
-      val (producer, writer) = fixture()
+      val (producer, _, writer) = fixture()
       val captor             = ArgumentCaptor.forClass(classOf[KafkaProducerRecord[String, String]])
 
       writer.audit(message).succeeded() shouldBe true
@@ -36,8 +38,8 @@ class KafkaAuditWriterSpec extends AnyWordSpec with Matchers {
     }
 
     "fail with the cause when the send fails" in {
-      val (producer, writer) = fixture()
-      val cause              = new RuntimeException("broker down")
+      val (producer, _, writer) = fixture()
+      val cause                = new RuntimeException("broker down")
       when(producer.send(any[KafkaProducerRecord[String, String]]()))
         .thenReturn(Future.failedFuture[RecordMetadata](cause))
 
@@ -48,7 +50,7 @@ class KafkaAuditWriterSpec extends AnyWordSpec with Matchers {
     }
 
     "throw and not send when the message is not JSON" in {
-      val (producer, writer) = fixture()
+      val (producer, _, writer) = fixture()
 
       an[Exception] should be thrownBy writer.audit("not json")
 
@@ -57,32 +59,53 @@ class KafkaAuditWriterSpec extends AnyWordSpec with Matchers {
   }
 
   "health" should {
-    "succeed when the topic metadata can be fetched" in {
-      val (producer, writer) = fixture()
-      when(producer.partitionsFor("audit.topic")).thenReturn(Future.succeededFuture(java.util.List.of[io.vertx.kafka.client.common.PartitionInfo]()))
+    "succeed when a broker describes the cluster" in {
+      val (_, admin, writer) = fixture()
+      when(admin.describeCluster()).thenReturn(Future.succeededFuture(new ClusterDescription()))
 
       writer.health().succeeded() shouldBe true
     }
 
     "fail when the brokers cannot be reached" in {
-      val (producer, writer) = fixture()
+      val (_, admin, writer) = fixture()
       val cause              = new RuntimeException("no broker")
-      when(producer.partitionsFor("audit.topic")).thenReturn(Future.failedFuture(cause))
+      when(admin.describeCluster()).thenReturn(Future.failedFuture(cause))
 
       val result = writer.health()
 
       result.failed() shouldBe true
       result.cause() shouldBe cause
     }
+
+    "not rely on the producer metadata cache" in {
+      val (producer, admin, writer) = fixture()
+      when(admin.describeCluster()).thenReturn(Future.succeededFuture(new ClusterDescription()))
+
+      writer.health()
+
+      verify(producer, never()).partitionsFor(any[String]())
+    }
   }
 
   "close" should {
-    "close the producer and return its future" in {
-      val (producer, writer) = fixture()
-      val closed             = Future.succeededFuture[Void]()
-      when(producer.close()).thenReturn(closed)
+    "close the producer and the admin client" in {
+      val (producer, admin, writer) = fixture()
+      when(producer.close()).thenReturn(Future.succeededFuture[Void]())
+      when(admin.close()).thenReturn(Future.succeededFuture[Void]())
 
-      writer.close() shouldBe theSameInstanceAs(closed)
+      writer.close().succeeded() shouldBe true
+
+      verify(producer).close()
+      verify(admin).close()
+    }
+
+    "fail when one of them fails to close" in {
+      val (producer, admin, writer) = fixture()
+      val cause                     = new RuntimeException("stuck")
+      when(producer.close()).thenReturn(Future.succeededFuture[Void]())
+      when(admin.close()).thenReturn(Future.failedFuture[Void](cause))
+
+      writer.close().failed() shouldBe true
     }
   }
 
