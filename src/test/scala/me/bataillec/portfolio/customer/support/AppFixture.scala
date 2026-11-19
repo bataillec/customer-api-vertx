@@ -15,6 +15,9 @@ trait AppFixture extends PostgresFixture { this: Suite =>
   protected var api: ApiClient   = uninitialized
   protected var auditTopic: String = uninitialized
 
+  /** Partitions of the audit topic: several, so that the ordering per customer key is a real guarantee. */
+  protected val AuditPartitions = 3
+
   private val envKeys = List("PG_HOST", "PG_PORT", "PG_DATABASE", "PG_USER", "PG_PASSWORD", "KAFKA_BOOTSTRAP_SERVERS", "AUDIT_TOPIC", "HTTP_PORT")
 
   override protected def beforeAll(): Unit = {
@@ -31,6 +34,8 @@ trait AppFixture extends PostgresFixture { this: Suite =>
       "AUDIT_TOPIC"             -> auditTopic,
       "HTTP_PORT"               -> port.toString
     ).foreach((k, v) => EnvironmentUtils.setEnv(k, v))
+
+    AuditProbe.createTopic(ContainersSupport.kafkaBootstrap, auditTopic, AuditPartitions)
 
     await(vertx.deployVerticle(new CustomerVerticle), 60)
     await(vertx.deployVerticle(new AuditVerticle), 60)
