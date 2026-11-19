@@ -1,6 +1,7 @@
 package me.bataillec.portfolio.customer.http
 
 import io.vertx.core.buffer.Buffer
+import io.vertx.core.json.{JsonArray, JsonObject}
 import io.vertx.core.{Future, Vertx}
 import io.vertx.ext.healthchecks.{HealthChecks, Status}
 import io.vertx.ext.web.handler.BodyHandler
@@ -143,12 +144,16 @@ object ApiRoutes {
             ctx
               .response()
               .putHeader(CONTENT_TYPE, DEFAULT_CONTENT_TYPE)
-              .end(contract.getRawContract().encode())
+              .end(publicSpec(contract.getRawContract()).encode())
           )
 
         router
       }
   }
+
+  // The contract keeps its internal "app:///#/..." refs: make them plain document refs again
+  private[http] def publicSpec(raw: JsonObject): JsonObject =
+    JsonObject(raw.encode().replace("\"app:///#", "\"#")).put("servers", JsonArray().add(JsonObject().put("url", "/")))
 
   private def makeResponse(ctx: RoutingContext, response: String): Unit = {
     json(ctx, Problem.withTraceId(ctx, HttpResponse.fromJsonString(response)))

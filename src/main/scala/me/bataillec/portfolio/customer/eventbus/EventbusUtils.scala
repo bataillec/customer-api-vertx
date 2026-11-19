@@ -31,11 +31,6 @@ object EventbusUtils {
     deliveryOptions.addHeader(name, param)
   }
 
-  def addQueryParam(deliveryOptions: DeliveryOptions, rc: RoutingContext, name: String): DeliveryOptions = {
-    val param = Option(rc.request.getParam(name)).getOrElse(throw Exception(s"The query param '$name' is not found in the request"))
-    deliveryOptions.addHeader(name, param)
-  }
-
   def addOptionalQueryParam(deliveryOptions: DeliveryOptions, rc: RoutingContext, name: String, defaultValue: Option[String] = None): DeliveryOptions = {
     (Option(rc.request.getParam(name)), defaultValue) match {
       case (Some(value), _)    => deliveryOptions.addHeader(name, value)

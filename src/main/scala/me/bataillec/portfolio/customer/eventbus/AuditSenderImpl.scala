@@ -7,7 +7,7 @@ import me.bataillec.portfolio.customer.Constants.AUDIT_ADDRESS
 import java.time.Clock
 import java.util.UUID
 
-/** Publishes audit events as platform event envelopes v1 (see platform/contracts/events/envelope.v1.schema.json). */
+/** Sends audit events as platform event envelopes v1 (see platform/contracts/events/envelope.v1.schema.json). */
 class AuditSenderImpl(
     eventbus: EventBus,
     clock: Clock = Clock.systemUTC(),
@@ -26,7 +26,7 @@ class AuditSenderImpl(
       .put("schema_version", AuditSenderImpl.SCHEMA_VERSION)
       .put("customer_id", id.toString)
     // The audit consumer expects a String body
-    eventbus.publish(AUDIT_ADDRESS, event.encode())
+    eventbus.send(AUDIT_ADDRESS, event.encode())
   }
 }
 

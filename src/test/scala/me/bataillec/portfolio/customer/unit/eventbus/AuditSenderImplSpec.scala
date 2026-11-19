@@ -30,7 +30,7 @@ class AuditSenderImplSpec extends AnyWordSpec with Matchers {
 
     /** The raw object published on the audit address. */
     def published: AnyRef = {
-      verify(eb).publish(eqTo(AUDIT_ADDRESS), captor.capture())
+      verify(eb).send(eqTo(AUDIT_ADDRESS), captor.capture())
       captor.getValue
     }
 
@@ -40,13 +40,13 @@ class AuditSenderImplSpec extends AnyWordSpec with Matchers {
   // endregion
 
   "send" should {
-    "publish (not send) once on the audit address" in {
+    "send (not publish) once on the audit address" in {
       val f = new Fixture
 
       f.sender.send("CUSTOMER_CREATED", customerId)
 
-      verify(f.eb, times(1)).publish(eqTo(AUDIT_ADDRESS), any[AnyRef]())
-      verify(f.eb, never()).send(any[String](), any[AnyRef]())
+      verify(f.eb, times(1)).send(eqTo(AUDIT_ADDRESS), any[AnyRef]())
+      verify(f.eb, never()).publish(any[String](), any[AnyRef]())
       verify(f.eb, never()).send(any[String](), any[AnyRef](), any[DeliveryOptions]())
       verify(f.eb, never()).request[String](any[String](), any[AnyRef]())
     }
@@ -87,7 +87,7 @@ class AuditSenderImplSpec extends AnyWordSpec with Matchers {
 
       new AuditSenderImpl(eb).send("CUSTOMER_CREATED", customerId)
 
-      verify(eb).publish(eqTo(AUDIT_ADDRESS), captor.capture())
+      verify(eb).send(eqTo(AUDIT_ADDRESS), captor.capture())
       val json = JsonObject(captor.getValue.asInstanceOf[String])
       noException should be thrownBy UUID.fromString(json.getString("event_id"))
       noException should be thrownBy Instant.parse(json.getString("occurred_at"))

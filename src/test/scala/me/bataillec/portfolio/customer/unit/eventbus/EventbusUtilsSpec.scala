@@ -101,55 +101,6 @@ class EventbusUtilsSpec extends AnyWordSpec with Matchers {
     }
   }
 
-  "addQueryParam" should {
-    "present" in {
-      val rc      = mock(classOf[RoutingContext])
-      val request = mock(classOf[HttpServerRequest])
-      when(rc.request).thenReturn(request)
-      when(request.getParam("my_param")).thenReturn("my_value")
-
-      val options = new DeliveryOptions()
-
-      val res = addQueryParam(options, rc, "my_param")
-
-      res should be theSameInstanceAs options
-      res.getHeaders should have size 1
-      res.getHeaders.get("my_param") shouldBe "my_value"
-    }
-
-    "absent" in {
-      val rc      = mock(classOf[RoutingContext])
-      val request = mock(classOf[HttpServerRequest])
-      when(rc.request).thenReturn(request)
-      when(request.getParam("my_param")).thenReturn(null)
-
-      val options = new DeliveryOptions()
-
-      val ex = the[Exception] thrownBy addQueryParam(options, rc, "my_param")
-
-      ex.getMessage shouldBe "The query param 'my_param' is not found in the request"
-      options.getHeaders shouldBe null
-    }
-
-    "keep pre-existing headers" in {
-      val rc      = mock(classOf[RoutingContext])
-      val request = mock(classOf[HttpServerRequest])
-      when(rc.request).thenReturn(request)
-      when(request.getParam("my_param")).thenReturn("my_value")
-
-      val options = new DeliveryOptions()
-      options.addHeader("old_key", "old_value")
-      options.addHeader("my_param", "old_value")
-
-      val res = addQueryParam(options, rc, "my_param")
-
-      res should be theSameInstanceAs options
-      res.getHeaders should have size 2
-      res.getHeaders.get("old_key") shouldBe "old_value"
-      res.getHeaders.getAll("my_param") should contain theSameElementsInOrderAs List("old_value", "my_value")
-    }
-  }
-
   "addOptionalQueryParam" should {
     val table = Table(
       ("str", "param", "default", "expected", "size"),

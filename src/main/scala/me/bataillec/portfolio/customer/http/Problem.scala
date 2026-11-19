@@ -62,7 +62,9 @@ object Problem {
   }
 
   private def traceId(ctx: RoutingContext): Option[String] =
-    Option(ctx.request().getHeader(TRACEPARENT_FIELD)).flatMap(_.split('-').lift(1))
+    Option(ctx.request().getHeader(TRACEPARENT_FIELD))
+      .flatMap(_.split('-').lift(1))
+      .filter(_.matches("[0-9a-f]{32}"))
 
   private def write(ctx: RoutingContext, status: Int, code: String, title: String, detail: Option[String]): Unit = {
     val json = body(status, code, title, detail)

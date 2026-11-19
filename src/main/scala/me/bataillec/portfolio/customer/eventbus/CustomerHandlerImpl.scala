@@ -125,7 +125,9 @@ class CustomerHandlerImpl(vertx: Vertx, operations: CustomerOps) extends Custome
           .map((v: HttpResponse) => msg.reply(v.toJson.encode()))
           .onFailure {
             case e: DomainError =>
-              logger.error("A domain error occured: {}", e.getMessage)
+              // Expected outcomes (404, 409, 429...) are not faults; only server-side errors are
+              if e.status >= 500 then logger.error("A domain error occurred: {}", e.getMessage)
+              else logger.info("A domain error occurred: {}", e.getMessage)
               msg.reply(Problem.fromDomainError(e).toJson.encode())
             case e: Throwable   =>
               logger.error("Failed to process or reply to the customer message: {}", e.getMessage)

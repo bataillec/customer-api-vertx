@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: Contract-first source of truth for customer-api-vertx.
 servers:
-  - url: "http://localhost:9000"
+  - url: "http://localhost:8080"
 tags:
   - name: customers
   - name: subscriptions
@@ -233,6 +233,7 @@ components:
         company_name: { type: string, maxLength: 255, pattern: "^[^\\x00]*$" }
     UpdateCustomer:
       type: object
+      minProperties: 1
       properties:
         company_name: { type: string, maxLength: 255, pattern: "^[^\\x00]*$" }
         status: { $ref: '#/components/schemas/CustomerStatus' }

@@ -8,7 +8,9 @@ object ConfigUtils {
     }
 
     def int(key: String, default: Int): Int = {
-      map.get(key).map(_.toInt).getOrElse(default)
+      map.get(key).map { v =>
+        v.trim.toIntOption.getOrElse(throw new IllegalArgumentException(s"Invalid integer for $key: '$v'"))
+      }.getOrElse(default)
     }
   }
 }

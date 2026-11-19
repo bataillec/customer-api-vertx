@@ -106,3 +106,11 @@ hs_err_pid*
 ### Vertx ###
 # Vertx cache directory
 .vertx
+
+### Local configuration and tooling state ###
+.env
+flyway.conf
+requests/
+.bloop/
+.metals/
+.openidea/

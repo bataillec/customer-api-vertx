@@ -94,7 +94,9 @@ class CustomerOperations(storage: Storage, auditSender: AuditSender, clock: Cloc
                   for {
                     _            <- storage.cancelActiveSubscription(tx, customerId)
                     subscription <- storage.insertActiveSubscription(tx, customerId, createSubscription)
-                    entitlements <- storage.applyPlan(tx, customerId, createSubscription, clock.instant())
+                    now          = clock.instant()
+                    // Same view as GET /entitlements: a period that has already ended starts anew
+                    entitlements <- storage.applyPlan(tx, customerId, createSubscription, now).map(_.map(_.effective(now)))
                   } yield {
                     auditSender.send(
                       "SUBSCRIPTION_CHANGED",
@@ -153,7 +155,10 @@ class CustomerOperations(storage: Storage, auditSender: AuditSender, clock: Cloc
                         case Some(result) => Future.succeededFuture(result)
                         case None         =>
                           auditSender.send("QUOTA_EXCEEDED", customerId, "feature_key" -> consumption.featureKey)
-                          val retryAfter = entitlement.effective(now).resetDate.map(Duration.between(now, _).getSeconds.max(1L))
+                          // Waiting never helps when the request is larger than the whole allocation
+                          val retryAfter =
+                            if consumption.amount > entitlement.allocatedQuota then None
+                            else entitlement.effective(now).resetDate.map(Duration.between(now, _).getSeconds.max(1L))
                           Future.failedFuture(QuotaExceeded(consumption.featureKey, retryAfter))
                       }
                   }
