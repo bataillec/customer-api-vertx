@@ -263,6 +263,7 @@ class PGStorage(pool: Pool) extends Storage {
           | WHERE customer_id = $1
           | AND feature_key = $2
           | AND $3::bigint <= allocated_quota - CASE WHEN reset_date <= $4 THEN 0 ELSE consumed_quota END
+          | AND EXISTS (SELECT 1 FROM subscriptions WHERE customer_id = $1 AND status = 'ACTIVE')
           | RETURNING feature_key, allocated_quota, consumed_quota
           |""".stripMargin
       )

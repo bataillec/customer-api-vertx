@@ -5,4 +5,5 @@ import io.vertx.core.Future
 trait AuditOps {
   def audit(msg: String): Future[Void]
   def close(): Future[Void]
+  def health(): Future[Unit] = Future.succeededFuture(())
 }

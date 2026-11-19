@@ -13,7 +13,7 @@ class AuditHandlerImpl(vertx: Vertx, operations: AuditOps) extends AuditHandler 
 
   override def handle(): Future[Unit] = {
     for {
-      _ <- SenderUtils.pong(vertx, AUDIT_HEALTH_ADDRESS).completion()
+      _ <- SenderUtils.pong(vertx, AUDIT_HEALTH_ADDRESS, _ => operations.health(), "Kafka unreachable")
       _ <- vertx
              .eventBus()
              .consumer(

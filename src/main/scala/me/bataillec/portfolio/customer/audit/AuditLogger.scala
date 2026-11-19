@@ -7,4 +7,7 @@ trait AuditLogger {
   def close(): Future[Void]
 
   def audit(msg: String): Future[Void]
+
+  /** Succeeds only when events can actually be written (the sink is reachable). */
+  def health(): Future[Unit] = Future.succeededFuture(())
 }

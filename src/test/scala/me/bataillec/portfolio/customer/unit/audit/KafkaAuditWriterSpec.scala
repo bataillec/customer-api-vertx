@@ -56,6 +56,26 @@ class KafkaAuditWriterSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "health" should {
+    "succeed when the topic metadata can be fetched" in {
+      val (producer, writer) = fixture()
+      when(producer.partitionsFor("audit.topic")).thenReturn(Future.succeededFuture(java.util.List.of[io.vertx.kafka.client.common.PartitionInfo]()))
+
+      writer.health().succeeded() shouldBe true
+    }
+
+    "fail when the brokers cannot be reached" in {
+      val (producer, writer) = fixture()
+      val cause              = new RuntimeException("no broker")
+      when(producer.partitionsFor("audit.topic")).thenReturn(Future.failedFuture(cause))
+
+      val result = writer.health()
+
+      result.failed() shouldBe true
+      result.cause() shouldBe cause
+    }
+  }
+
   "close" should {
     "close the producer and return its future" in {
       val (producer, writer) = fixture()

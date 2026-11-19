@@ -15,6 +15,7 @@ import me.bataillec.portfolio.customer.Constants.*
 import me.bataillec.portfolio.customer.eventbus.{CustomerSender, SenderUtils}
 
 import java.util.List as JList
+import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
 
 object ApiRoutes {
@@ -136,6 +137,17 @@ object ApiRoutes {
         router.route().failureHandler(Problem.failureHandler)
         // Requests that match no route never reach the failure handler
         ROUTING_ERROR_STATUSES.foreach(router.errorHandler(_, Problem.failureHandler))
+        // RFC 9110: a 405 must list the methods the resource does support
+        val allowed = allowedMethods(contract)
+        router.errorHandler(
+          405,
+          ctx => {
+            allowed
+              .collectFirst { case (pattern, methods) if pattern.matcher(ctx.normalizedPath()).matches() => methods }
+              .foreach(methods => ctx.response().putHeader("Allow", methods.mkString(", ")))
+            Problem.failureHandler(ctx)
+          }
+        )
 
         // expose the spec as JSON
         router
@@ -154,6 +166,14 @@ object ApiRoutes {
   // The contract keeps its internal "app:///#/..." refs: make them plain document refs again
   private[http] def publicSpec(raw: JsonObject): JsonObject =
     JsonObject(raw.encode().replace("\"app:///#", "\"#")).put("servers", JsonArray().add(JsonObject().put("url", "/")))
+
+  private def allowedMethods(contract: OpenAPIContract): List[(java.util.regex.Pattern, List[String])] =
+    contract.getPaths.asScala.toList.map { path =>
+      // "/customers/{id}" -> "/customers/[^/]+"
+      val regex   = path.getName.split("\\{[^}]*\\}", -1).map(java.util.regex.Pattern.quote).mkString("[^/]+")
+      val methods = path.getOperations.asScala.toList.map(_.getHttpMethod.name()).distinct.sorted
+      (java.util.regex.Pattern.compile(regex), methods)
+    }
 
   private def makeResponse(ctx: RoutingContext, response: String): Unit = {
     json(ctx, Problem.withTraceId(ctx, HttpResponse.fromJsonString(response)))

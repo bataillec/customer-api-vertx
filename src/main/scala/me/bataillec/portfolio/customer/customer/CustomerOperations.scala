@@ -144,16 +144,17 @@ class CustomerOperations(storage: Storage, auditSender: AuditSender, clock: Cloc
         case Some(status) =>
           status match {
             case CustomerStatus.ACTIVE                             =>
-              storage.findEntitlement(tx, customerId, consumption.featureKey).compose {
-                case None              => Future.failedFuture(EntitlementNotFound(customerId, consumption.featureKey))
-                case Some(entitlement) =>
-                  storage.findActivePlan(tx, customerId).compose {
-                    case None    => Future.failedFuture(NoActiveSubscription(customerId))
-                    case Some(_) =>
-                      val now = clock.instant()
-                      storage.consume(tx, customerId, consumption, now).compose {
-                        case Some(result) => Future.succeededFuture(result)
-                        case None         =>
+              val now = clock.instant()
+              // Hot path: one guarded UPDATE (it also requires an active subscription); the lookups only explain a miss
+              storage.consume(tx, customerId, consumption, now).compose {
+                case Some(result) => Future.succeededFuture(result)
+                case None         =>
+                  storage.findEntitlement(tx, customerId, consumption.featureKey).compose {
+                    case None              => Future.failedFuture(EntitlementNotFound(customerId, consumption.featureKey))
+                    case Some(entitlement) =>
+                      storage.findActivePlan(tx, customerId).compose {
+                        case None    => Future.failedFuture(NoActiveSubscription(customerId))
+                        case Some(_) =>
                           auditSender.send("QUOTA_EXCEEDED", customerId, "feature_key" -> consumption.featureKey)
                           // Waiting never helps when the request is larger than the whole allocation
                           val retryAfter =

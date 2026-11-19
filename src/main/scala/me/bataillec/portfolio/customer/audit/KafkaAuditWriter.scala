@@ -15,6 +15,9 @@ class KafkaAuditWriter(producer: KafkaProducer[String, String], topic: String) e
     producer.send(KafkaProducerRecord.create(topic, key, msg)).mapEmpty[Void]()
   }
 
+  // A metadata request: it fails when the brokers cannot be reached, unlike a mere "pong"
+  override def health(): Future[Unit] = producer.partitionsFor(topic).mapEmpty[Unit]()
+
   override def close(): Future[Void] = producer.close()
 }
 

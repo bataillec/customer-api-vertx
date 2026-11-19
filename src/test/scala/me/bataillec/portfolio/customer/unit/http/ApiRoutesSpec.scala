@@ -272,7 +272,9 @@ class ApiRoutesSpec extends AnyWordSpec with Matchers with BeforeAndAfterAll wit
       }
 
       "the method is not allowed on the path: 405" in {
-        assertProblem(call("DELETE", "/customers"), 405, HTTP_ERROR)
+        val res = call("DELETE", "/customers")
+        assertProblem(res, 405, HTTP_ERROR)
+        Option(res.headers.get("Allow")).map(_.split(", ").toSet) shouldBe Some(Set("GET", "POST"))
 
         verifyNoInteractions(sender)
       }

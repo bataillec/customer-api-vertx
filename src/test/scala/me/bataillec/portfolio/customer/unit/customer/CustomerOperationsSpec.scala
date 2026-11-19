@@ -429,6 +429,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
     "fail with EntitlementNotFound" in {
       val f = new Fixture
       activeCustomer(f)
+      when(f.storage.consume(any(), any(), any(), any())).thenReturn(ok[Option[ConsumeResult]](None))
       when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](None))
 
       failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe EntitlementNotFound(id, "api_calls")
@@ -437,6 +438,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
     "fail with NoActiveSubscription" in {
       val f = new Fixture
       activeCustomer(f)
+      when(f.storage.consume(any(), any(), any(), any())).thenReturn(ok[Option[ConsumeResult]](None))
       when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](Some(entitlement)))
       f.activePlan(None)
 
@@ -453,6 +455,20 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       await(f.ops.consumeEntitlement(id, consumption)) shouldBe result
 
       verifyNoInteractions(f.audit)
+      // The hot path is the guarded UPDATE alone
+      verify(f.storage, never()).findEntitlement(any(), any(), any())
+      verify(f.storage, never()).findActivePlan(any(), any())
+    }
+
+    "give no retry delay when the request exceeds the whole allocation" in {
+      val f = new Fixture
+      activeCustomer(f)
+      when(f.storage.findEntitlement(f.tx, id, "api_calls"))
+        .thenReturn(ok[Option[Entitlement]](Some(entitlement.copy(allocatedQuota = 3, resetDate = Some(now.plusSeconds(600))))))
+      f.activePlan(Some(PlanType.PRO))
+      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](None))
+
+      failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe QuotaExceeded("api_calls", None)
     }
 
     "fail with QuotaExceeded, audit it and tell when to retry" in {

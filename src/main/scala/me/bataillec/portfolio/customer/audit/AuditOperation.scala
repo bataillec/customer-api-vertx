@@ -8,6 +8,8 @@ class AuditOperation(auditLogger: AuditLogger) extends AuditOps {
     auditLogger.audit(msg)
   }
 
+  override def health(): Future[Unit] = auditLogger.health()
+
   override def close(): Future[Void] = {
     auditLogger.close()
   }

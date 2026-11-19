@@ -26,6 +26,7 @@ class AuditHandlerImplSpec extends AnyWordSpec with Matchers {
   private class Fixture(bus: EventBusFixture = new EventBusFixture()) {
     val ops: AuditOps             = mock(classOf[AuditOps])
     when(ops.audit(any[String]())).thenReturn(Future.succeededFuture[Void]())
+    when(ops.health()).thenReturn(Future.succeededFuture(()))
     when(ops.close()).thenReturn(Future.succeededFuture[Void]())
     val handler                   = new AuditHandlerImpl(bus.vertx, ops)
     val eventBus: EventBusFixture = bus
