@@ -1,4 +1,5 @@
-# The whole platform: Postgres, Kafka (KRaft), 1 http, 2 customer and 1 audit verticle.
+# The whole platform: Postgres, Kafka (KRaft), 1 http, 2 customer and 1 audit verticle,
+# plus pgAdmin and Kafka UI to look at the data.
 # Start it with: podman compose up -d --build   (or docker compose ...)
 # The credentials below are for local use only.
 x-verticle: &verticle
@@ -13,13 +14,15 @@ x-customer-env: &customer-env
 
 services:
   postgres:
-    image: docker.io/postgres:17
+    image: docker.io/postgres:18.7
     environment:
       POSTGRES_DB: customers
       POSTGRES_USER: customers
       POSTGRES_PASSWORD: customers
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # Postgres 18 keeps its data in a version-named subdirectory of /var/lib/postgresql.
+      # A new volume name: it refuses to start on the Postgres 17 data of the former `pgdata` volume
+      - pgdata18:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U customers -d customers"]
       interval: 5s
@@ -27,7 +30,7 @@ services:
       retries: 10
 
   kafka:
-    image: docker.io/apache/kafka:3.9.0
+    image: docker.io/apache/kafka:4.4.0
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -48,6 +51,37 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
+
+  # Browse the database at http://localhost:5050 (the password of the server is the Postgres one: customers)
+  pgadmin:
+    image: docker.io/dpage/pgadmin4:9.19.0
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      # No login screen: the UI is reachable from this machine only, and nothing here is production
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      # Registers the postgres service so that nobody has to type its address
+      - ./docker/pgadmin-servers.json:/pgadmin4/servers.json:ro
+      - pgadmindata:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Browse the audit topic at http://localhost:8090
+  kafka-ui:
+    image: docker.io/kafbat/kafka-ui:v1.5.0
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "${KAFKA_UI_PORT:-8090}:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
 
   # Two instances: the event bus spreads the requests between them
   customer-1:
@@ -88,5 +122,6 @@ services:
 
 # Hazelcast (5701) is deliberately not published: the cluster has no authentication
 volumes:
-  pgdata:
+  pgdata18:
   kafkadata:
+  pgadmindata:

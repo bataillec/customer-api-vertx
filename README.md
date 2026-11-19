@@ -36,7 +36,11 @@ podman compose up -d --build      # or: docker compose up -d --build
 curl localhost:8080/health/ready
 ```
 
-- Set `HTTP_PORT` to publish the API on another host port (`HTTP_PORT=18081 podman compose ...`).
+- Two web UIs come with it:
+  - **pgAdmin** at http://localhost:5050 shows the database. The `customers` server is already registered: enter the password `customers` the first time you connect.
+  - **Kafka UI** at http://localhost:8090 shows the `customer.events.v1` audit topic and its messages.
+- Set `HTTP_PORT`, `PGADMIN_PORT` or `KAFKA_UI_PORT` to publish a service on another host port (`HTTP_PORT=18081 podman compose ...`).
+- Postgres 18 stores its data differently, so it uses a new volume, `pgdata18`. The data of the former Postgres 17 `pgdata` volume stays untouched and unused: delete it with `podman volume rm customer-api-vertx_pgdata` once you don't need it.
 - The tests are not run during the image build (they need Testcontainers). Run `mvn test` separately.
 - Hazelcast (5701) is not published: the verticles find each other by service name on the compose network, using `docker/cluster.xml`.
 - `podman compose down -v` stops everything and deletes the data.
