@@ -33,7 +33,7 @@ jobs:
           maven-version: 3.10.0
       - name: Unit tests and 85% coverage gate
         run: mvn -B verify -DskipITs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: unit-reports
@@ -61,7 +61,7 @@ jobs:
       # Docker is preinstalled; Ryuk stays enabled for the cleanup.
       - name: Integration tests (Postgres, Kafka, Hazelcast cluster)
         run: mvn -B verify
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: integration-reports
@@ -83,7 +83,7 @@ jobs:
         with:
           maven-version: 3.10.0
       - run: mvn -B package -DskipTests
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: customer-api-jar
           path: target/customer-api-vertx-*.jar
@@ -105,7 +105,7 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Export the image
         run: docker save ${{ env.IMAGE }}:ci | gzip > image.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: docker-image
           path: image.tar.gz
@@ -135,7 +135,7 @@ jobs:
         run: >
           mvn -B -Pe2e test-compile failsafe:integration-test failsafe:verify
           -De2e.image=${{ env.IMAGE }}:ci
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-reports
