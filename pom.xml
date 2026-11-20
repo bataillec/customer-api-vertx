@@ -35,7 +35,7 @@
         <requireMavenVersion.version>3.8.1</requireMavenVersion.version>
         <testcontainers-scala.version>0.44.1</testcontainers-scala.version>
         <!-- Must match the core version pulled in by testcontainers-scala (checked in the spike: 2.0.3) -->
-        <testcontainers.version>2.0.3</testcontainers.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
         <!-- -DskipITs skips the Testcontainers specs run by mvn verify -->
         <skipITs>false</skipITs>
 
