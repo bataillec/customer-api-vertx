@@ -1,0 +1,37 @@
+name: Dependabot issue
+
+# pull_request_target (not pull_request): Dependabot-triggered pull_request runs get a
+# read-only token. Nothing from the PR is checked out or executed, so this is safe.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  issue:
+    name: Open tracking issue
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issue and link it to the PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          issue_url=$(gh issue create \
+            --title "$PR_TITLE" \
+            --label dependencies \
+            --body "Dependabot proposes a dependency update, fixed by #${PR_NUMBER}.
+
+          ${PR_URL}")
+          issue_number=${issue_url##*/}
+          body=$(gh pr view "$PR_NUMBER" --json body -q .body)
+          gh pr edit "$PR_NUMBER" --body "${body}
+
+          Closes #${issue_number}"
