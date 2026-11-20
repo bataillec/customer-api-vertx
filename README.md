@@ -1,5 +1,7 @@
 # customer-api-vertx
 
+[![CI](https://github.com/bataillec/customer-api-vertx/actions/workflows/ci.yml/badge.svg)](https://github.com/bataillec/customer-api-vertx/actions/workflows/ci.yml)
+
 Reactive Scala 3 / Vert.x microservice that manages customers, their plan subscriptions and the usage quotas (entitlements) that come with them. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the diagrams of this service, and platform/docs/ARCHITECTURE.md for the wider platform.
 
 - **Customers:** create, read, update (PATCH), soft-delete and list with keyset pagination.
@@ -137,6 +139,17 @@ Without these variables the integration suites abort. Check for `Run completed` 
 ### In CI
 
 The runner needs a Docker engine (a hosted `ubuntu-latest` runner has one). Run `mvn verify`, and cache the two images and the Maven repository between runs to save the pull. Do not set `TESTCONTAINERS_RYUK_DISABLED` there: Ryuk is the safe cleanup when it works. Keep `mvn verify -DskipITs` for a fast first job if the pipeline has several.
+
+The GitHub Actions workflow [.github/workflows/ci.yml](.github/workflows/ci.yml) does this in stages:
+
+| Job | What it runs | Output |
+|---|---|---|
+| `unit` | `mvn verify -DskipITs` (unit tests and the 85% coverage gate) | test and coverage reports |
+| `integration` | `mvn verify` (Postgres, Kafka and Hazelcast cluster suites) | test reports |
+| `package` | `mvn package -DskipTests` | fat JAR |
+| `docker` | builds the `Dockerfile` | image, passed on to `e2e` |
+| `e2e` | the Cucumber scenarios, against the image built by `docker` | Cucumber reports |
+| `publish` | on `main` and `v*` tags, once the tests pass: pushes the tested image to GHCR | `ghcr.io/bataillec/customer-api-vertx`; the JAR is attached to the release on tags |
 
 ## Audit
 
