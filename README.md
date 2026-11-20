@@ -89,6 +89,36 @@ Kafka audit delivery is deliberately fire-and-forget (no outbox), so the audit t
 
 `ClusterIT` joins its nodes through the fixed Hazelcast ports 5701 to 5703 of `cluster.xml`: free them first (the Docker stack does not publish them, but another local Hazelcast node would).
 
+### End-to-end tests
+
+The integration tests run the app inside the test JVM. The end-to-end tests check what they cannot: the **packaged** platform. They build the `Dockerfile`, then start Postgres, Kafka and the app as separate containers (`http`, `audit`, and two `customer` nodes, as in `compose.yaml`), and talk to it through its public HTTP port only. A broken image, entrypoint or `docker/cluster.xml` fails them.
+
+The scenarios are written in Gherkin, in business language, so that people who do not code can read them. They are in `src/test/resources/features/`:
+
+| Feature | What it describes |
+|---|---|
+| `smoke.feature` | the services start, find each other and answer; the plans and the API description are published |
+| `customer-journey.feature` | registering, subscribing, consuming a quota, upgrading, suspending, deleting and reactivating a customer |
+| `audit-trail.feature` | the changes of a customer are recorded, in order, on the Kafka topic |
+| `cluster-topology.feature` | one customer service lost: still working; all lost: a clear 503; then recovery |
+| `resilience.feature` | the database or the audit broker stops responding: readiness says so, then recovers |
+
+The scenarios tagged `@destructive` stop or freeze containers. The hooks put the platform back afterwards, so that the next scenario finds it healthy.
+
+| Command | Runs |
+|---|---|
+| `mvn verify -Pe2e` | everything `mvn verify` does, then the end-to-end scenarios |
+| `mvn -Pe2e test-compile failsafe:integration-test failsafe:verify` | only the end-to-end scenarios |
+| `mvn verify -Pe2e -De2e.image=<image>` | the same, with an image you already built instead of building the `Dockerfile` |
+
+They are opt-in because building the image and starting the platform takes a few minutes (about 3 minutes for the 18 scenarios once the Maven cache is warm). They need the same Docker or Podman setup as the integration tests (see below), and do not use the host ports 5701 to 5703 or 8080: the containers have their own network and Testcontainers maps the HTTP port to a random one.
+
+A readable report is written to `target/cucumber-reports/e2e.html` (and `e2e.json`). It lists each scenario with its steps and results, and can be shared as it is.
+
+To add a scenario, write it in a `.feature` file with the existing steps. A new sentence needs a step definition in `src/test/scala/.../e2e/` (`CustomerSteps`, `AuditSteps` or `PlatformSteps`), which is where the HTTP and JSON details belong. Keep the wording of the features free of them.
+
+Keep the scenarios to the journeys and the failure modes of the whole platform. Detailed validation and edge cases are the job of `CustomerApiIT`.
+
 ### With Podman
 
 Testcontainers needs to find the engine, and the Ryuk cleanup container does not work with a rootless Podman socket:
