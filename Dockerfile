@@ -1,5 +1,5 @@
 # One image for the three verticles: the container's command picks which one runs.
-FROM maven:3-eclipse-temurin-25 AS build
+FROM maven:3-eclipse-temurin-26 AS build
 WORKDIR /build
 COPY pom.xml .
 COPY src ./src
