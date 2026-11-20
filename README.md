@@ -1,6 +1,6 @@
 # customer-api-vertx
 
-Reactive Scala 3 / Vert.x microservice that manages customers, their plan subscriptions and the usage quotas (entitlements) that come with them. See platform/docs/ARCHITECTURE.md for the wider platform.
+Reactive Scala 3 / Vert.x microservice that manages customers, their plan subscriptions and the usage quotas (entitlements) that come with them. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the diagrams of this service, and platform/docs/ARCHITECTURE.md for the wider platform.
 
 - **Customers:** create, read, update (PATCH), soft-delete and list with keyset pagination.
 - **Subscriptions and entitlements:** a customer subscribes to a plan, and each plan grants quotas per feature. Consuming a feature is checked and updated atomically in Postgres, and quotas reset per period (except `STORAGE_GB`, which measures what is held).
