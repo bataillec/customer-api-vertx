@@ -15,7 +15,7 @@ class OutboxRecorder(
     eventId: () => UUID = () => UUID.randomUUID()
 ) extends Outbox {
 
-  override def record(tx: SqlClient, eventType: String, customerId: UUID, extra: (String, String | Long)*): Future[Unit] = {
+  override def prepare(eventType: String, customerId: UUID, extra: (String, String | Long)*): JsonObject = {
     val event = JsonObject()
     // A null value carries no information: leave the key out rather than write a JSON null
     extra.foreach((k, v) => if v != null then event.put(k, v))
@@ -27,8 +27,10 @@ class OutboxRecorder(
       .put("producer", OutboxRecorder.PRODUCER)
       .put("schema_version", OutboxRecorder.SCHEMA_VERSION)
       .put("customer_id", customerId.toString)
-    storage.insertOutbox(tx, customerId, event)
   }
+
+  override def record(tx: SqlClient, eventType: String, customerId: UUID, extra: (String, String | Long)*): Future[Unit] =
+    storage.insertOutbox(tx, customerId, prepare(eventType, customerId, extra*))
 }
 
 object OutboxRecorder {

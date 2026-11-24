@@ -39,6 +39,16 @@ class PGStorageIT extends AnyWordSpec with Matchers with PostgresFixture {
   private def consume(customer: Customer, feature: String, amount: Long, at: Instant = now): Option[ConsumeResult] =
     await(storage.inTransaction(tx => storage.consume(tx, customer.id, Consumption(feature, amount), at)))
 
+  private def outboxPayloads(customer: Customer): List[io.vertx.core.json.JsonObject] = {
+    val conn = containers.connection(database)
+    try {
+      val rs  = conn.createStatement().executeQuery(s"SELECT payload::text FROM outbox WHERE customer_id = '${customer.id}' ORDER BY id")
+      val out = scala.collection.mutable.ListBuffer.empty[io.vertx.core.json.JsonObject]
+      while (rs.next()) out += io.vertx.core.json.JsonObject(rs.getString(1))
+      out.toList
+    } finally conn.close()
+  }
+
   private def entitlements(customer: Customer): Map[String, Entitlement] =
     await(storage.listEntitlements(customer.id)).map(e => e.featureKey -> e).toMap
 
@@ -455,6 +465,48 @@ class PGStorageIT extends AnyWordSpec with Matchers with PostgresFixture {
       consume(customer, "STORAGE_GB", 1, at = Instant.parse("2030-01-01T00:00:00Z")) shouldBe None
       entitlements(customer)("STORAGE_GB").consumedQuota shouldBe 1
       entitlements(customer)("STORAGE_GB").resetDate shouldBe None
+    }
+
+    "write the event with the quotas after the call, in the statement that consumes" in {
+      val customer = newCustomer()
+      subscribe(customer, PlanType.FREE_TIER)
+      val event = io.vertx.core.json.JsonObject().put("event_type", "QUOTA_CONSUMED").put("feature_key", "API_CALLS_MONTHLY").put("amount", 10L)
+
+      val result = await(storage.inTransaction(tx => storage.consumeWithEvent(tx, customer.id, Consumption("API_CALLS_MONTHLY", 10), now, event)))
+
+      result shouldBe Some(ConsumeResult("API_CALLS_MONTHLY", 1000, 10, 990))
+      val payload = outboxPayloads(customer)
+      payload should have size 1
+      payload.head.getString("event_type") shouldBe "QUOTA_CONSUMED"
+      payload.head.getLong("amount") shouldBe 10L
+      payload.head.getLong("consumed_quota") shouldBe 10L
+      payload.head.getLong("allocated_quota") shouldBe 1000L
+    }
+
+    "write no event when the quota is refused" in {
+      val customer = newCustomer()
+      subscribe(customer, PlanType.FREE_TIER)
+      val event = io.vertx.core.json.JsonObject().put("event_type", "QUOTA_CONSUMED")
+
+      await(storage.inTransaction(tx => storage.consumeWithEvent(tx, customer.id, Consumption("STORAGE_GB", 5), now, event))) shouldBe None
+
+      outboxPayloads(customer) shouldBe empty
+      entitlements(customer)("STORAGE_GB").consumedQuota shouldBe 0
+    }
+
+    "write no event when the transaction rolls back" in {
+      val customer = newCustomer()
+      subscribe(customer, PlanType.FREE_TIER)
+      val event = io.vertx.core.json.JsonObject().put("event_type", "QUOTA_CONSUMED")
+
+      failureOf(
+        storage.inTransaction(tx =>
+          storage.consumeWithEvent(tx, customer.id, Consumption("API_CALLS_MONTHLY", 10), now, event).compose(_ => Future.failedFuture[Unit](RuntimeException("boom")))
+        )
+      ).getMessage shouldBe "boom"
+
+      outboxPayloads(customer) shouldBe empty
+      entitlements(customer)("API_CALLS_MONTHLY").consumedQuota shouldBe 0
     }
 
     "never let the usage exceed the allocation under concurrent consumption" in {

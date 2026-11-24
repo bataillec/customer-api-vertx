@@ -154,7 +154,9 @@ class CustomerOperations(storage: Storage, outbox: Outbox, clock: Clock = Clock.
               case CustomerStatus.ACTIVE                             =>
                 val now = clock.instant()
                 // Hot path: one guarded UPDATE (it also requires an active subscription); the lookups only explain a miss
-                storage.consume(tx, customerId, consumption, now).compose {
+                // The event is written by the same statement as the consumption: one round trip less than a separate insert
+                val event = outbox.prepare("QUOTA_CONSUMED", customerId, "feature_key" -> consumption.featureKey, "amount" -> consumption.amount)
+                storage.consumeWithEvent(tx, customerId, consumption, now, event).compose {
                   case Some(result) => Future.succeededFuture[Outcome](Right(result))
                   case None         =>
                     storage.findEntitlement(tx, customerId, consumption.featureKey).compose {

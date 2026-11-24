@@ -93,23 +93,33 @@ class AuditKafkaIT extends AnyWordSpec with Matchers with AppFixture {
         List((Some("FREE_TIER"), None), (Some("PRO"), Some("FREE_TIER")))
     }
 
-    "publish QUOTA_EXCEEDED with the feature key" in {
+    "publish QUOTA_EXCEEDED with the feature key, and no QUOTA_CONSUMED for the refusal" in {
       val id = newCustomerId()
       api.subscribe(id, "FREE_TIER").status shouldBe 201
       api.consume(id, "STORAGE_GB", 1).status shouldBe 200
       api.consume(id, "STORAGE_GB", 1).status shouldBe 429
 
-      val exceeded = probe.awaitEvents(id, 3).filter(_.eventType == "QUOTA_EXCEEDED")
+      val events = probe.awaitEvents(id, 4)
 
-      exceeded.map(_.field("feature_key")) shouldBe List(Some("STORAGE_GB"))
+      events.map(_.eventType) shouldBe List("CUSTOMER_CREATED", "SUBSCRIPTION_CHANGED", "QUOTA_CONSUMED", "QUOTA_EXCEEDED")
+      events.last.field("feature_key") shouldBe Some("STORAGE_GB")
     }
 
-    "not publish anything for a successful consumption" in {
+    "publish QUOTA_CONSUMED with the amount and the quotas, in order with the other events of the customer" in {
       val id = newCustomerId()
       api.subscribe(id, "FREE_TIER").status shouldBe 201
       api.consume(id, "API_CALLS_MONTHLY", 10).status shouldBe 200
+      api.consume(id, "API_CALLS_MONTHLY", 5).status shouldBe 200
 
-      probe.eventsAfter(id, Duration.ofSeconds(2)).map(_.eventType) shouldBe List("CUSTOMER_CREATED", "SUBSCRIPTION_CHANGED")
+      val events = probe.awaitEvents(id, 4)
+
+      events.map(_.eventType) shouldBe List("CUSTOMER_CREATED", "SUBSCRIPTION_CHANGED", "QUOTA_CONSUMED", "QUOTA_CONSUMED")
+      val consumed = events.filter(_.eventType == "QUOTA_CONSUMED")
+      consumed.foreach(_.key shouldBe id)
+      consumed.map(e => (e.json.getString("feature_key"), e.json.getLong("amount"), e.json.getLong("consumed_quota"), e.json.getLong("allocated_quota"))) shouldBe
+        List(("API_CALLS_MONTHLY", 10L, 10L, 1000L), ("API_CALLS_MONTHLY", 5L, 15L, 1000L))
+      consumed.map(_.partition).distinct should have size 1
+      consumed.map(_.offset) shouldBe consumed.map(_.offset).sorted
     }
   }
 

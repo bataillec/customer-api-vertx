@@ -111,7 +111,20 @@ class OutboxIT extends AnyWordSpec with Matchers with PostgresFixture {
 
       failureOf(ops.consumeEntitlement(customer.id, Consumption("STORAGE_GB", 1))) shouldBe a[QuotaExceeded]
 
-      eventTypes() shouldBe List("CUSTOMER_CREATED", "SUBSCRIPTION_CHANGED", "QUOTA_EXCEEDED")
+      eventTypes() shouldBe List("CUSTOMER_CREATED", "SUBSCRIPTION_CHANGED", "QUOTA_CONSUMED", "QUOTA_EXCEEDED")
+    }
+
+    "write a QUOTA_CONSUMED event with the consumption" in {
+      val customer = newCustomer()
+      await(ops.createSubscription(customer.id, CreateSubscription(PlanType.FREE_TIER)))
+
+      await(ops.consumeEntitlement(customer.id, Consumption("API_CALLS_MONTHLY", 10)))
+      await(ops.consumeEntitlement(customer.id, Consumption("API_CALLS_MONTHLY", 5)))
+
+      eventTypes() shouldBe List("CUSTOMER_CREATED", "SUBSCRIPTION_CHANGED", "QUOTA_CONSUMED", "QUOTA_CONSUMED")
+      query("SELECT payload->>'amount' || '/' || (payload->>'consumed_quota') FROM outbox WHERE payload->>'event_type' = 'QUOTA_CONSUMED' ORDER BY id") shouldBe
+        List("10/10", "5/15")
+      query("SELECT jsonb_typeof(payload->'amount') FROM outbox WHERE payload->>'event_type' = 'QUOTA_CONSUMED' LIMIT 1") shouldBe List("number")
     }
 
     "number the events of a customer in the order the changes were made" in {

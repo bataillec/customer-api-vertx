@@ -254,31 +254,53 @@ class PGStorage(pool: Pool) extends Storage {
       .map(_.asScala.headOption.map(Entitlement.fromRow))
   }
 
+  // The guarded UPDATE, shared by both consume statements. $1 customer, $2 feature, $3 amount, $4 now, $5 next reset
+  private val consumeUpdate =
+    """ UPDATE entitlements
+      | SET consumed_quota = CASE WHEN reset_date <= $4 THEN 0 ELSE consumed_quota END + $3::bigint,
+      |     reset_date = CASE WHEN reset_date <= $4 THEN $5 ELSE reset_date END
+      | WHERE customer_id = $1
+      | AND feature_key = $2
+      | AND $3::bigint <= allocated_quota - CASE WHEN reset_date <= $4 THEN 0 ELSE consumed_quota END
+      | AND EXISTS (SELECT 1 FROM subscriptions WHERE customer_id = $1 AND status = 'ACTIVE')
+      | RETURNING feature_key, allocated_quota, consumed_quota
+      |""".stripMargin
+
+  private def consumeParams(customerId: UUID, consumption: Consumption, now: Instant): Tuple =
+    Tuple.of(
+      customerId,
+      consumption.featureKey,
+      consumption.amount,
+      now.atOffset(ZoneOffset.UTC),
+      PlanQuota.nextResetDate(now).atOffset(ZoneOffset.UTC)
+    )
+
   /** Starts a new period when `reset_date` has passed, so the quota is checked against the usage of the current period only. */
-  override def consume(tx: SqlClient, customerId: UUID, consumption: Consumption, now: Instant): Future[Option[ConsumeResult]] = {
-    tx
-      .preparedQuery(
-        """ UPDATE entitlements
-          | SET consumed_quota = CASE WHEN reset_date <= $4 THEN 0 ELSE consumed_quota END + $3::bigint,
-          |     reset_date = CASE WHEN reset_date <= $4 THEN $5 ELSE reset_date END
-          | WHERE customer_id = $1
-          | AND feature_key = $2
-          | AND $3::bigint <= allocated_quota - CASE WHEN reset_date <= $4 THEN 0 ELSE consumed_quota END
-          | AND EXISTS (SELECT 1 FROM subscriptions WHERE customer_id = $1 AND status = 'ACTIVE')
-          | RETURNING feature_key, allocated_quota, consumed_quota
-          |""".stripMargin
-      )
-      .execute(
-        Tuple.of(
-          customerId,
-          consumption.featureKey,
-          consumption.amount,
-          now.atOffset(ZoneOffset.UTC),
-          PlanQuota.nextResetDate(now).atOffset(ZoneOffset.UTC)
-        )
-      )
+  override def consume(tx: SqlClient, customerId: UUID, consumption: Consumption, now: Instant): Future[Option[ConsumeResult]] =
+    tx.preparedQuery(consumeUpdate)
+      .execute(consumeParams(customerId, consumption, now))
       .map(_.asScala.headOption.map(ConsumeResult.fromRow))
-  }
+
+  // A data-modifying CTE always runs, whether or not the main query reads it; `event` only has a row to insert when
+  // `consumed` has one, so a refusal writes nothing.
+  override def consumeWithEvent(
+      tx: SqlClient,
+      customerId: UUID,
+      consumption: Consumption,
+      now: Instant,
+      event: JsonObject
+  ): Future[Option[ConsumeResult]] =
+    tx.preparedQuery(
+      s"""WITH consumed AS ($consumeUpdate),
+         |     event AS (
+         |       INSERT INTO outbox (customer_id, payload)
+         |       SELECT $$1, $$6::jsonb || jsonb_build_object('consumed_quota', consumed_quota, 'allocated_quota', allocated_quota)
+         |       FROM consumed
+         |     )
+         |SELECT feature_key, allocated_quota, consumed_quota FROM consumed
+         |""".stripMargin
+    ).execute(consumeParams(customerId, consumption, now).addValue(event))
+      .map(_.asScala.headOption.map(ConsumeResult.fromRow))
 
   override def insertOutbox(tx: SqlClient, customerId: UUID, payload: JsonObject): Future[Unit] = {
     tx
