@@ -23,8 +23,11 @@ class PGStorageIT extends AnyWordSpec with Matchers with PostgresFixture {
     storage = new PGStorage(pool)
   }
 
+  private def insert(email: String, company: Option[String]): Future[Customer] =
+    storage.inTransaction(tx => storage.insertCustomer(tx, CreateCustomer(email, company)))
+
   private def newCustomer(email: String = s"${UUID.randomUUID()}@example.com", company: Option[String] = None): Customer =
-    await(storage.insertCustomer(CreateCustomer(email, company)))
+    await(insert(email, company))
 
   private def subscribe(customer: Customer, plan: PlanType, at: Instant = now): List[Entitlement] =
     await(storage.inTransaction { tx =>
@@ -65,20 +68,20 @@ class PGStorageIT extends AnyWordSpec with Matchers with PostgresFixture {
     "map a duplicate email to EmailAlreadyUsed" in {
       newCustomer("dup@example.com")
 
-      failureOf(storage.insertCustomer(CreateCustomer("dup@example.com", None))) shouldBe DomainError.EmailAlreadyUsed("dup@example.com")
+      failureOf(insert("dup@example.com", None)) shouldBe DomainError.EmailAlreadyUsed("dup@example.com")
     }
 
     "treat emails that only differ by their case as the same one" in {
       newCustomer("Case@Example.com")
 
-      failureOf(storage.insertCustomer(CreateCustomer("case@example.COM", None))) shouldBe a[DomainError.EmailAlreadyUsed]
+      failureOf(insert("case@example.COM", None)) shouldBe a[DomainError.EmailAlreadyUsed]
     }
 
     "keep the email of a DELETED customer reserved" in {
       val customer = newCustomer("gone@example.com")
       await(storage.inTransaction(tx => storage.updateCustomer(tx, customer.id, UpdateCustomer(None, Some(CustomerStatus.DELETED)))))
 
-      failureOf(storage.insertCustomer(CreateCustomer("gone@example.com", None))) shouldBe a[DomainError.EmailAlreadyUsed]
+      failureOf(insert("gone@example.com", None)) shouldBe a[DomainError.EmailAlreadyUsed]
     }
   }
 

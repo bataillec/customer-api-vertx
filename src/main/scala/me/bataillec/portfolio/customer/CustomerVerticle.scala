@@ -5,7 +5,8 @@ import io.vertx.pgclient.{PgBuilder, PgConnectOptions}
 import io.vertx.sqlclient.*
 import me.bataillec.portfolio.customer.config.CustomerConfig
 import me.bataillec.portfolio.customer.customer.{CustomerOperations, CustomerOps, PGStorage}
-import me.bataillec.portfolio.customer.eventbus.{AuditSender, AuditSenderImpl, CustomerHandlerImpl}
+import me.bataillec.portfolio.customer.audit.OutboxRecorder
+import me.bataillec.portfolio.customer.eventbus.CustomerHandlerImpl
 import org.flywaydb.core.Flyway
 import org.flywaydb.core.api.output.MigrateResult
 import org.slf4j.LoggerFactory
@@ -15,7 +16,6 @@ import scala.compiletime.uninitialized
 class CustomerVerticle extends VerticleBase {
   private val logger                   = LoggerFactory.getLogger(getClass)
   private var pool: Pool               = uninitialized
-  private var auditSender: AuditSender = uninitialized
   private var operations: CustomerOps  = uninitialized
 
   override def start(): Future[Unit] = {
@@ -37,8 +37,8 @@ class CustomerVerticle extends VerticleBase {
                )
                .using(vertx)
                .build()
-             auditSender = new AuditSenderImpl(vertx.eventBus())
-             operations = new CustomerOperations(new PGStorage(pool), auditSender)
+             val storage = new PGStorage(pool)
+             operations = new CustomerOperations(storage, new OutboxRecorder(storage))
            }
       _ <- new CustomerHandlerImpl(vertx, operations).handle()
     } yield {

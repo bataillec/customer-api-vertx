@@ -6,7 +6,7 @@ import me.bataillec.portfolio.customer.customer.CustomerCursor.encodeCursor
 import me.bataillec.portfolio.customer.customer.{CustomerOperations, Storage}
 import me.bataillec.portfolio.customer.domain.*
 import me.bataillec.portfolio.customer.domain.DomainError.*
-import me.bataillec.portfolio.customer.eventbus.AuditSender
+import me.bataillec.portfolio.customer.audit.Outbox
 import me.bataillec.portfolio.customer.support.FutureUtils.{await, failureOf}
 import org.mockito.ArgumentMatchers.{any, anyInt}
 import org.mockito.Mockito.*
@@ -15,6 +15,7 @@ import org.scalatest.wordspec.AnyWordSpec
 
 import java.time.{Clock, Instant, ZoneOffset}
 import java.util.UUID
+import scala.collection.mutable.ListBuffer
 
 class CustomerOperationsSpec extends AnyWordSpec with Matchers {
   private val id      = UUID.fromString("11111111-2222-3333-4444-555555555555")
@@ -37,9 +38,22 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
   private def ko[T](error: Throwable): Future[T]     = Future.failedFuture[T](error)
   private def locked(status: Option[CustomerStatus]) = ok[Option[CustomerStatus]](status)
 
+  /** Keeps what is recorded, with the transaction it was recorded on. A failure can be armed to prove the rollback. */
+  private class RecordingOutbox extends Outbox {
+    val recorded: ListBuffer[(String, UUID, List[(String, String | Long)])] = ListBuffer.empty
+    val transactions: ListBuffer[SqlClient]                                = ListBuffer.empty
+    var failure: Option[Throwable]                                         = None
+
+    override def record(tx: SqlClient, eventType: String, customerId: UUID, extra: (String, String | Long)*): Future[Unit] = {
+      transactions += tx
+      recorded += ((eventType, customerId, extra.toList))
+      failure.fold(Future.succeededFuture(()))(e => Future.failedFuture[Unit](e))
+    }
+  }
+
   private class Fixture(clock: Clock = Clock.fixed(now, ZoneOffset.UTC)) {
     val storage: Storage        = mock(classOf[Storage])
-    val audit: AuditSender      = mock(classOf[AuditSender])
+    val audit                   = new RecordingOutbox
     val tx: SqlClient           = mock(classOf[SqlClient])
     val ops: CustomerOperations = new CustomerOperations(storage, audit, clock)
 
@@ -62,7 +76,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       when(storage.listEntitlements(id)).thenReturn(ok(List(Entitlement("f", 10, 5, Some(Instant.EPOCH)))))
       when(storage.findCustomer(id)).thenReturn(ok[Option[Customer]](Some(customer)))
 
-      val result = await(new CustomerOperations(storage, mock(classOf[AuditSender])).listEntitlements(id))
+      val result = await(new CustomerOperations(storage, new RecordingOutbox).listEntitlements(id))
 
       result.head.consumedQuota shouldBe 0
       result.head.resetDate.get.isAfter(Instant.now()) shouldBe true
@@ -89,21 +103,38 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
   "createCustomer" should {
     "store the customer and send a CUSTOMER_CREATED audit" in {
       val f = new Fixture
-      when(f.storage.insertCustomer(CreateCustomer("a@b.c", Some("ACME")))).thenReturn(ok(customer))
+      when(f.storage.insertCustomer(f.tx, CreateCustomer("a@b.c", Some("ACME")))).thenReturn(ok(customer))
 
       await(f.ops.createCustomer(CreateCustomer("a@b.c", Some("ACME")))) shouldBe customer
 
-      verify(f.audit).send("CUSTOMER_CREATED", id)
+      f.audit.recorded.toList shouldBe List(("CUSTOMER_CREATED", id, List()))
+    }
+
+    "record the event on the transaction of the insert, so that both commit or roll back together" in {
+      val f = new Fixture
+      when(f.storage.insertCustomer(f.tx, CreateCustomer("a@b.c", Some("ACME")))).thenReturn(ok(customer))
+
+      await(f.ops.createCustomer(CreateCustomer("a@b.c", Some("ACME"))))
+
+      f.audit.transactions.toList shouldBe List(f.tx)
+    }
+
+    "fail, so that the transaction rolls back, when the event cannot be recorded" in {
+      val f = new Fixture
+      f.audit.failure = Some(boom)
+      when(f.storage.insertCustomer(f.tx, CreateCustomer("a@b.c", Some("ACME")))).thenReturn(ok(customer))
+
+      failureOf(f.ops.createCustomer(CreateCustomer("a@b.c", Some("ACME")))) shouldBe boom
     }
 
     "propagate the storage failure and not audit" in {
       val f     = new Fixture
       val error = EmailAlreadyUsed("a@b.c")
-      when(f.storage.insertCustomer(any[CreateCustomer]())).thenReturn(ko[Customer](error))
+      when(f.storage.insertCustomer(any[SqlClient](), any[CreateCustomer]())).thenReturn(ko[Customer](error))
 
       failureOf(f.ops.createCustomer(CreateCustomer("a@b.c", None))) shouldBe error
 
-      verifyNoInteractions(f.audit)
+      f.audit.recorded shouldBe empty
     }
   }
 
@@ -194,7 +225,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
 
       failureOf(f.ops.updateCustomer(id, UpdateCustomer(None, None))) shouldBe CustomerNotFound(id)
 
-      verifyNoInteractions(f.audit)
+      f.audit.recorded shouldBe empty
     }
 
     "refuse to rename a deleted customer that stays deleted (no status)" in {
@@ -222,7 +253,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       await(f.ops.updateCustomer(id, update)) shouldBe customer
 
       verify(f.storage).cancelActiveSubscription(f.tx, id)
-      verify(f.audit).send("CUSTOMER_UPDATED", id, "company_name" -> "New", "old_status" -> "ACTIVE", "new_status" -> "DELETED")
+      f.audit.recorded.toList shouldBe List(("CUSTOMER_UPDATED", id, List("company_name" -> "New", "old_status" -> "ACTIVE", "new_status" -> "DELETED")))
     }
 
     "cancel the subscription of an already deleted customer that only gets deleted again without a name" in {
@@ -234,7 +265,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       await(f.ops.updateCustomer(id, update)) shouldBe customer
 
       verify(f.storage).cancelActiveSubscription(f.tx, id)
-      verify(f.audit).send("CUSTOMER_UPDATED", id, "company_name" -> "-", "old_status" -> "DELETED", "new_status" -> "-")
+      f.audit.recorded.toList shouldBe List(("CUSTOMER_UPDATED", id, List("company_name" -> "-", "old_status" -> "DELETED", "new_status" -> "-")))
     }
 
     "reactivate a deleted customer without cancelling anything" in {
@@ -246,7 +277,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       await(f.ops.updateCustomer(id, update)) shouldBe customer
 
       verify(f.storage, never()).cancelActiveSubscription(any[SqlClient](), any[UUID]())
-      verify(f.audit).send("CUSTOMER_UPDATED", id, "company_name" -> "Back", "old_status" -> "DELETED", "new_status" -> "ACTIVE")
+      f.audit.recorded.toList shouldBe List(("CUSTOMER_UPDATED", id, List("company_name" -> "Back", "old_status" -> "DELETED", "new_status" -> "ACTIVE")))
     }
 
     "not cancel anything when an active customer is suspended" in {
@@ -268,7 +299,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
 
       failureOf(f.ops.updateCustomer(id, update)) shouldBe boom
 
-      verifyNoInteractions(f.audit)
+      f.audit.recorded shouldBe empty
     }
   }
 
@@ -320,7 +351,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
 
       await(f.ops.createSubscription(id, create)) shouldBe SubscriptionWithEntitlements.fromSubscriptionAndEntitlements(subscription, List(entitlement))
 
-      verify(f.audit).send("SUBSCRIPTION_CHANGED", id, "plan_type" -> "PRO")
+      f.audit.recorded.toList shouldBe List(("SUBSCRIPTION_CHANGED", id, List("plan_type" -> "PRO")))
     }
 
     "change the plan in order and audit the previous plan" in {
@@ -335,7 +366,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       order.verify(f.storage).cancelActiveSubscription(f.tx, id)
       order.verify(f.storage).insertActiveSubscription(f.tx, id, create)
       order.verify(f.storage).applyPlan(f.tx, id, create, now)
-      verify(f.audit).send("SUBSCRIPTION_CHANGED", id, "plan_type" -> "PRO", "previous_plan_type" -> "FREE_TIER")
+      f.audit.recorded.toList shouldBe List(("SUBSCRIPTION_CHANGED", id, List("plan_type" -> "PRO", "previous_plan_type" -> "FREE_TIER")))
     }
 
     "propagate PlanNotConfigured and not audit" in {
@@ -347,7 +378,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
 
       failureOf(f.ops.createSubscription(id, create)) shouldBe PlanNotConfigured(PlanType.PRO)
 
-      verifyNoInteractions(f.audit)
+      f.audit.recorded shouldBe empty
     }
   }
 
@@ -454,7 +485,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
 
       await(f.ops.consumeEntitlement(id, consumption)) shouldBe result
 
-      verifyNoInteractions(f.audit)
+      f.audit.recorded shouldBe empty
       // The hot path is the guarded UPDATE alone
       verify(f.storage, never()).findEntitlement(any(), any(), any())
       verify(f.storage, never()).findActivePlan(any(), any())
@@ -481,7 +512,26 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
 
       failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe QuotaExceeded("api_calls", Some(60L))
 
-      verify(f.audit).send("QUOTA_EXCEEDED", id, "feature_key" -> "api_calls")
+      f.audit.recorded.toList shouldBe List(("QUOTA_EXCEEDED", id, List("feature_key" -> "api_calls")))
+    }
+
+    "record QUOTA_EXCEEDED on the transaction and refuse only after it, so that the event is committed" in {
+      val f = new Fixture
+      activeCustomer(f)
+      when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](Some(entitlement)))
+      f.activePlan(Some(PlanType.PRO))
+      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](None))
+      var committed = false
+      doAnswer { invocation =>
+        invocation.getArgument[SqlClient => Future[Any]](0)(f.tx).map { result => committed = true; result }
+      }.when(f.storage).inTransaction[Any](any[SqlClient => Future[Any]]())
+
+      val refusal = f.ops.consumeEntitlement(id, consumption)
+
+      // The transaction ended with a value, not a failure: a failed future would have rolled the event back
+      committed shouldBe true
+      f.audit.transactions.toList shouldBe List(f.tx)
+      failureOf(refusal) shouldBe QuotaExceeded("api_calls", None)
     }
 
     "retry in at least one second when the reset is imminent" in {

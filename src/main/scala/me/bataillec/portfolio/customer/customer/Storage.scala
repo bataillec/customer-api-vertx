@@ -1,6 +1,7 @@
 package me.bataillec.portfolio.customer.customer
 
 import io.vertx.core.Future
+import io.vertx.core.json.JsonObject
 import io.vertx.sqlclient.SqlClient
 import me.bataillec.portfolio.customer.domain.*
 
@@ -12,7 +13,7 @@ trait Storage {
 
   def ping(): Future[Unit]
 
-  def insertCustomer(customer: CreateCustomer): Future[Customer]
+  def insertCustomer(tx: SqlClient, customer: CreateCustomer): Future[Customer]
 
   def listCustomers(limit: Int, after: Option[(Instant, UUID)], status: Option[CustomerStatus]): Future[List[Customer]]
 
@@ -41,4 +42,7 @@ trait Storage {
   def findEntitlement(tx: SqlClient, customerId: UUID, featureKey: String): Future[Option[Entitlement]]
 
   def consume(tx: SqlClient, customerId: UUID, consumption: Consumption, now: Instant): Future[Option[ConsumeResult]]
+
+  /** Writes an audit event on the transaction of the change it describes. */
+  def insertOutbox(tx: SqlClient, customerId: UUID, payload: JsonObject): Future[Unit]
 }

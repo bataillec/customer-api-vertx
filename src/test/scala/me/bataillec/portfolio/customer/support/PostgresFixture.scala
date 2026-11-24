@@ -45,7 +45,7 @@ trait PostgresFixture extends BeforeAndAfterAll with BeforeAndAfterEach { this: 
 
   override protected def beforeEach(): Unit = {
     super.beforeEach()
-    sql("TRUNCATE customers CASCADE") // subscriptions and entitlements follow through their foreign keys
+    sql("TRUNCATE customers, outbox CASCADE") // subscriptions and entitlements follow through their foreign keys; the outbox has none
   }
 
   override protected def afterAll(): Unit = {

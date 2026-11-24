@@ -113,7 +113,7 @@ class KafkaAuditWriterSpec extends AnyWordSpec with Matchers {
     "build a writer on a real producer without connecting at creation" in {
       val vertx = Vertx.vertx()
       try {
-        val writer = KafkaAuditWriter(vertx, AuditConfig("localhost:1", "audit.topic"))
+        val writer = KafkaAuditWriter(vertx, AuditConfig.fromEnv(Map("KAFKA_BOOTSTRAP_SERVERS" -> "localhost:1", "AUDIT_TOPIC" -> "audit.topic")))
         writer should not be null
         writer.close().await()
       } finally vertx.close().await()

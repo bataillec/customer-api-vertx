@@ -2,6 +2,8 @@ package me.bataillec.portfolio.customer.integration
 
 import io.vertx.core.http.HttpMethod
 import io.vertx.core.json.JsonObject
+import me.bataillec.portfolio.customer.AuditVerticle
+import me.bataillec.portfolio.customer.support.FutureUtils.await
 import me.bataillec.portfolio.customer.support.{ApiResponse, AppFixture, AuditProbe, Containers}
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
@@ -41,7 +43,7 @@ class ResilienceIT extends AnyWordSpec with Matchers with AppFixture {
   }
 
   "with Kafka unreachable" should {
-    "keep serving the API, since the audit is fire-and-forget" in {
+    "keep serving the API, since the events wait in the outbox" in {
       containers.pauseKafka()
       try {
         val (created, millis) = timed(api.createCustomer())
@@ -69,12 +71,61 @@ class ResilienceIT extends AnyWordSpec with Matchers with AppFixture {
       checks(ready) shouldBe Map("customer-verticle" -> "UP", "audit-verticle" -> "UP")
     }
 
+    "deliver in order the events written while it was unreachable, once it is back" in {
+      val probe = new AuditProbe(containers.kafkaBootstrap, auditTopic)
+      try {
+        containers.pauseKafka()
+        val id =
+          try {
+            val id = api.createCustomer().string("id")
+            api.subscribe(id, "FREE_TIER").status shouldBe 201
+            api.consume(id, "STORAGE_GB", 1).status shouldBe 200
+            api.consume(id, "STORAGE_GB", 1).status shouldBe 429
+            id
+          } finally containers.unpauseKafka()
+
+        probe.awaitEvents(id, 3, java.time.Duration.ofSeconds(90)).map(_.eventType) shouldBe
+          List("CUSTOMER_CREATED", "SUBSCRIPTION_CHANGED", "QUOTA_EXCEEDED")
+      } finally probe.close()
+    }
+
     "deliver the new events once Kafka is back" in {
       val probe = new AuditProbe(containers.kafkaBootstrap, auditTopic)
       try {
         val id = api.createCustomer().string("id")
 
         probe.awaitEvents(id, 1, java.time.Duration.ofSeconds(60)).map(_.eventType) shouldBe List("CUSTOMER_CREATED")
+      } finally probe.close()
+    }
+  }
+
+  "with the relay down" should {
+    "lose no event: what was committed meanwhile is published when the relay starts again" in {
+      val probe = new AuditProbe(containers.kafkaBootstrap, auditTopic)
+      try {
+        await(vertx.undeploy(auditDeploymentId), 30)
+        val id = api.createCustomer().string("id")
+        api.subscribe(id, "FREE_TIER").status shouldBe 201
+
+        probe.eventsAfter(id, java.time.Duration.ofSeconds(2)) shouldBe empty
+
+        auditDeploymentId = await(vertx.deployVerticle(new AuditVerticle), 60)
+
+        probe.awaitEvents(id, 2, java.time.Duration.ofSeconds(60)).map(_.eventType) shouldBe List("CUSTOMER_CREATED", "SUBSCRIPTION_CHANGED")
+      } finally probe.close()
+    }
+
+    "not publish twice when a second relay runs: only the leader publishes" in {
+      val probe = new AuditProbe(containers.kafkaBootstrap, auditTopic)
+      try {
+        val standby = await(vertx.deployVerticle(new AuditVerticle), 60)
+        try {
+          val id = api.createCustomer().string("id")
+          api.subscribe(id, "FREE_TIER").status shouldBe 201
+
+          probe.awaitEvents(id, 2, java.time.Duration.ofSeconds(60))
+          probe.eventsAfter(id, java.time.Duration.ofSeconds(3)).map(_.eventType) shouldBe List("CUSTOMER_CREATED", "SUBSCRIPTION_CHANGED")
+        } finally await(vertx.undeploy(standby), 30)
       } finally probe.close()
     }
   }

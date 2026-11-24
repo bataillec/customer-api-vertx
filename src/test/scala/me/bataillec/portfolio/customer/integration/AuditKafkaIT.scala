@@ -10,8 +10,8 @@ import java.util.UUID
 import java.util.concurrent.{Executors, TimeUnit}
 import scala.compiletime.uninitialized
 
-/** The audit flow end to end: an HTTP call, the event bus, the audit verticle and the Kafka topic.
-  * Delivery is fire-and-forget by design, so the assertions poll the topic instead of expecting the event at once.
+/** The audit flow end to end: an HTTP call, the outbox table, the audit verticle's relay and the Kafka topic.
+  * The relay publishes after the commit, so the assertions poll the topic instead of expecting the event at once.
   */
 class AuditKafkaIT extends AnyWordSpec with Matchers with AppFixture {
   private var probe: AuditProbe = uninitialized

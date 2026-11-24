@@ -6,7 +6,7 @@ Reactive Scala 3 / Vert.x microservice that manages customers, their plan subscr
 
 - **Customers:** create, read, update (PATCH), soft-delete and list with keyset pagination.
 - **Subscriptions and entitlements:** a customer subscribes to a plan, and each plan grants quotas per feature. Consuming a feature is checked and updated atomically in Postgres, and quotas reset per period (except `STORAGE_GB`, which measures what is held).
-- **Audit:** every change is written to a Kafka topic as a platform event envelope.
+- **Audit:** every change is written to an outbox table in its own transaction, then relayed to a Kafka topic as a platform event envelope (at-least-once: consumers deduplicate on `event_id`).
 - **Architecture:** an HTTP verticle validates requests against `openapi.yaml` and talks to the customer and audit verticles over the clustered (Hazelcast) event bus. Postgres is the store, with Flyway migrations.
 
 The API contract is `src/main/resources/openapi.yaml`, and a running instance serves it at `GET /openapi.json`.
@@ -82,12 +82,13 @@ They use [Testcontainers](https://testcontainers.com/) to start the real things,
 | `PGStorageIT` | the real SQL of `PGStorage`: pagination, plan changes, quota reset, and concurrent consumption |
 | `CustomerApiIT` | the whole app (HTTP, event bus, Postgres, Kafka) through its public API: lifecycle rules, validation, problem responses, health, `/openapi.json` |
 | `AuditKafkaIT` | the audit events on the Kafka topic: envelope, key, content, no event on a failed request, ordering per customer |
+| `OutboxIT` | the outbox on a real Postgres: an event commits or rolls back with its change, a refused consume keeps its event, the relay's leadership, ordering, pruning and backlog |
 | `ResilienceIT` | the app with Postgres or Kafka paused: health reporting, 504 instead of a hang, recovery |
 | `ClusterIT` | three Hazelcast nodes with the real `cluster.xml`: load spreading, a quota exact across two writers, failover |
 
 The suites run one after the other, in a single JVM. A full `mvn verify` takes 3 to 4 minutes (a little more the first time, while the images are pulled).
 
-Kafka audit delivery is deliberately fire-and-forget (no outbox), so the audit tests poll the topic with a timeout and never assert guaranteed delivery.
+Audit events go through a transactional outbox (the relay publishes them after the commit), so the audit tests poll the topic with a timeout instead of expecting an event at once.
 
 `ClusterIT` joins its nodes through the fixed Hazelcast ports 5701 to 5703 of `cluster.xml`: free them first (the Docker stack does not publish them, but another local Hazelcast node would).
 
@@ -155,10 +156,16 @@ The GitHub Actions workflow [.github/workflows/ci.yml](.github/workflows/ci.yml)
 
 Audit events are written to a Kafka topic as platform event envelopes v1 (`event_id`, `event_type`, `occurred_at`, `producer`, `schema_version`, `customer_id` and extras). The record key is the `customer_id`.
 
+They go through a **transactional outbox**: the event is a row of the `outbox` table, written in the transaction of the change it describes, and the audit verticle publishes the rows to Kafka afterwards, in order per customer. A rolled back change leaves no event, and a committed one cannot lose it, even if Kafka or the process is down for a while. Delivery is at-least-once: a row can be published twice after a crash, with the same `event_id`. Several `audit` processes can run: one relays, the others stand by. `/health/ready` reports the backlog of unsent events.
+
 | Variable | Default | Meaning |
 |---|---|---|
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Kafka brokers |
 | `AUDIT_TOPIC` | `customer.events.v1` | Topic receiving the audit events |
+| `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD` | as for `customer` | The database holding the outbox: the audit verticle needs it too |
+| `OUTBOX_POLL_INTERVAL_MS` | `200` | Wait between two relay rounds when the outbox is empty |
+| `OUTBOX_BATCH_SIZE` | `100` | Events read per round |
+| `OUTBOX_RETENTION_DAYS` | `7` | How long sent events stay in the table before they are pruned |
 
 With the Docker stack running, read the topic with:
 

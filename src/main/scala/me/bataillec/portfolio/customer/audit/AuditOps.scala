@@ -1,9 +1,11 @@
 package me.bataillec.portfolio.customer.audit
 
 import io.vertx.core.Future
+import io.vertx.core.json.JsonObject
 
 trait AuditOps {
-  def audit(msg: String): Future[Void]
+
+  /** Succeeds only when events can actually be written (Kafka is reachable). The value is the state of the outbox. */
+  def health(): Future[JsonObject]
   def close(): Future[Void]
-  def health(): Future[Unit] = Future.succeededFuture(())
 }

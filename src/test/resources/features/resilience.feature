@@ -18,3 +18,14 @@ Feature: Surviving a slow or unreachable dependency
     And a new customer can still be registered
     When the audit broker responds again
     Then the platform becomes ready again
+
+  @destructive
+  Scenario: The changes made while the audit broker is unreachable are recorded once it is back
+    Given the platform is running with two customer services
+    When the audit broker stops responding
+    And a registered customer
+    And the customer subscribes to the "PRO" plan
+    And the audit broker responds again
+    Then the audit trail of the customer shows, in this order:
+      | CUSTOMER_CREATED     |
+      | SUBSCRIPTION_CHANGED |
