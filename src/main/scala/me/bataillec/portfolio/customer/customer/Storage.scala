@@ -43,6 +43,12 @@ trait Storage {
 
   def consume(tx: SqlClient, customerId: UUID, consumption: Consumption, now: Instant): Future[Option[ConsumeResult]]
 
+  /** Same as `consume`, and when the quota is granted the same statement also writes `event` (see `Outbox.prepare`) to
+    * the outbox, completed with the `consumed_quota` and `allocated_quota` of the row it just updated. One round trip
+    * less than a separate insert, on the hot path. Nothing is written when the quota is refused.
+    */
+  def consumeWithEvent(tx: SqlClient, customerId: UUID, consumption: Consumption, now: Instant, event: JsonObject): Future[Option[ConsumeResult]]
+
   /** Writes an audit event on the transaction of the change it describes. */
   def insertOutbox(tx: SqlClient, customerId: UUID, payload: JsonObject): Future[Unit]
 }

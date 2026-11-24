@@ -33,6 +33,20 @@ class OutboxRecorderSpec extends AnyWordSpec with Matchers {
     }
   }
 
+  "prepare" should {
+    "build the envelope with the extras, and write nothing" in {
+      val f = new Fixture
+
+      val json = f.recorder.prepare("QUOTA_CONSUMED", customerId, "feature_key" -> "api_calls", "amount" -> 5L)
+
+      json.getString("event_type") shouldBe "QUOTA_CONSUMED"
+      json.getString("event_id") shouldBe "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+      json.getString("feature_key") shouldBe "api_calls"
+      json.getLong("amount") shouldBe 5L
+      verifyNoInteractions(f.storage)
+    }
+  }
+
   "record" should {
     "write the platform envelope v1 on the given transaction" in {
       val f = new Fixture

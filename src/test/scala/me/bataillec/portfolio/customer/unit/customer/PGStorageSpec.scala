@@ -476,4 +476,30 @@ class PGStorageSpec extends AnyWordSpec with Matchers {
       await(db.storage.consume(db.tx, id, Consumption("api_calls", 500), now)) shouldBe None
     }
   }
+
+  "consumeWithEvent" should {
+    val event = io.vertx.core.json.JsonObject().put("event_type", "QUOTA_CONSUMED")
+
+    "update the usage and write the event in one statement" in {
+      val db = returning(row("feature_key" -> "api_calls", "allocated_quota" -> 100L, "consumed_quota" -> 15L))
+
+      await(db.storage.consumeWithEvent(db.tx, id, Consumption("api_calls", 5), now, event)) shouldBe Some(ConsumeResult("api_calls", 100, 15, 85))
+
+      db.last.sql should include("UPDATE entitlements")
+      db.last.sql should include("INSERT INTO outbox")
+      values(db.last.params.get) shouldBe Seq(id, "api_calls", 5L, utc(now), utc(nextReset), event)
+    }
+
+    "return None when the quota would be exceeded" in {
+      val db = returning()
+
+      await(db.storage.consumeWithEvent(db.tx, id, Consumption("api_calls", 500), now, event)) shouldBe None
+    }
+
+    "propagate the failure, so that the transaction rolls back" in {
+      val db = failing(boom)
+
+      failureOf(db.storage.consumeWithEvent(db.tx, id, Consumption("api_calls", 5), now, event)) shouldBe boom
+    }
+  }
 }

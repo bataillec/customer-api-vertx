@@ -1,6 +1,7 @@
 package me.bataillec.portfolio.customer.unit.customer
 
 import io.vertx.core.Future
+import io.vertx.core.json.JsonObject
 import io.vertx.sqlclient.SqlClient
 import me.bataillec.portfolio.customer.customer.CustomerCursor.encodeCursor
 import me.bataillec.portfolio.customer.customer.{CustomerOperations, Storage}
@@ -8,7 +9,7 @@ import me.bataillec.portfolio.customer.domain.*
 import me.bataillec.portfolio.customer.domain.DomainError.*
 import me.bataillec.portfolio.customer.audit.Outbox
 import me.bataillec.portfolio.customer.support.FutureUtils.{await, failureOf}
-import org.mockito.ArgumentMatchers.{any, anyInt}
+import org.mockito.ArgumentMatchers.{any, anyInt, eq as eqTo}
 import org.mockito.Mockito.*
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
@@ -42,7 +43,13 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
   private class RecordingOutbox extends Outbox {
     val recorded: ListBuffer[(String, UUID, List[(String, String | Long)])] = ListBuffer.empty
     val transactions: ListBuffer[SqlClient]                                = ListBuffer.empty
+    val prepared: ListBuffer[(String, UUID, List[(String, String | Long)])] = ListBuffer.empty
     var failure: Option[Throwable]                                         = None
+
+    override def prepare(eventType: String, customerId: UUID, extra: (String, String | Long)*): JsonObject = {
+      prepared += ((eventType, customerId, extra.toList))
+      JsonObject().put("event_type", eventType)
+    }
 
     override def record(tx: SqlClient, eventType: String, customerId: UUID, extra: (String, String | Long)*): Future[Unit] = {
       transactions += tx
@@ -460,7 +467,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
     "fail with EntitlementNotFound" in {
       val f = new Fixture
       activeCustomer(f)
-      when(f.storage.consume(any(), any(), any(), any())).thenReturn(ok[Option[ConsumeResult]](None))
+      when(f.storage.consumeWithEvent(any(), any(), any(), any(), any())).thenReturn(ok[Option[ConsumeResult]](None))
       when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](None))
 
       failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe EntitlementNotFound(id, "api_calls")
@@ -469,7 +476,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
     "fail with NoActiveSubscription" in {
       val f = new Fixture
       activeCustomer(f)
-      when(f.storage.consume(any(), any(), any(), any())).thenReturn(ok[Option[ConsumeResult]](None))
+      when(f.storage.consumeWithEvent(any(), any(), any(), any(), any())).thenReturn(ok[Option[ConsumeResult]](None))
       when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](Some(entitlement)))
       f.activePlan(None)
 
@@ -481,7 +488,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       activeCustomer(f)
       when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](Some(entitlement)))
       f.activePlan(Some(PlanType.PRO))
-      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](Some(result)))
+      when(f.storage.consumeWithEvent(eqTo(f.tx), eqTo(id), eqTo(consumption), eqTo(now), any[JsonObject]())).thenReturn(ok[Option[ConsumeResult]](Some(result)))
 
       await(f.ops.consumeEntitlement(id, consumption)) shouldBe result
 
@@ -490,39 +497,25 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       verify(f.storage, never()).findActivePlan(any(), any())
     }
 
-    "record QUOTA_CONSUMED with the amount and the quotas after the call" in {
+    "hand the QUOTA_CONSUMED event to the statement that consumes, so that it commits with the consumption" in {
       val f = new Fixture
       activeCustomer(f)
-      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](Some(result)))
-
-      await(f.ops.consumeEntitlement(id, consumption))
-
-      f.audit.recorded.toList shouldBe List(
-        ("QUOTA_CONSUMED", id, List("feature_key" -> "api_calls", "amount" -> 5L, "consumed_quota" -> 15L, "allocated_quota" -> 100L))
-      )
-      f.audit.transactions.toList shouldBe List(f.tx)
-    }
-
-    "record QUOTA_CONSUMED before the transaction ends, so that it commits with the consumption" in {
-      val f = new Fixture
-      activeCustomer(f)
-      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](Some(result)))
-      var recordedAtCommit = -1
-      doAnswer { invocation =>
-        invocation.getArgument[SqlClient => Future[Any]](0)(f.tx).map { r => recordedAtCommit = f.audit.recorded.size; r }
-      }.when(f.storage).inTransaction[Any](any[SqlClient => Future[Any]]())
+      when(f.storage.consumeWithEvent(any(), any(), any(), any(), any())).thenReturn(ok[Option[ConsumeResult]](Some(result)))
 
       await(f.ops.consumeEntitlement(id, consumption)) shouldBe result
 
-      recordedAtCommit shouldBe 1
+      // The quotas after the call are added by the statement itself, from the row it updated
+      f.audit.prepared.toList shouldBe List(("QUOTA_CONSUMED", id, List("feature_key" -> "api_calls", "amount" -> 5L)))
+      val event = org.mockito.ArgumentCaptor.forClass(classOf[JsonObject])
+      verify(f.storage).consumeWithEvent(eqTo(f.tx), eqTo(id), eqTo(consumption), eqTo(now), event.capture())
+      event.getValue.getString("event_type") shouldBe "QUOTA_CONSUMED"
+      f.audit.recorded shouldBe empty
     }
 
-    "fail, and so roll the consumption back, when the event cannot be recorded" in {
+    "fail, and so roll the consumption back, when the statement fails" in {
       val f = new Fixture
       activeCustomer(f)
-      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](Some(result)))
-      val boom = new RuntimeException("outbox down")
-      f.audit.failure = Some(boom)
+      when(f.storage.consumeWithEvent(any(), any(), any(), any(), any())).thenReturn(ko[Option[ConsumeResult]](boom))
 
       failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe boom
     }
@@ -532,7 +525,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       activeCustomer(f)
       when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](Some(entitlement)))
       f.activePlan(Some(PlanType.PRO))
-      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](None))
+      when(f.storage.consumeWithEvent(eqTo(f.tx), eqTo(id), eqTo(consumption), eqTo(now), any[JsonObject]())).thenReturn(ok[Option[ConsumeResult]](None))
 
       failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe a[QuotaExceeded]
 
@@ -545,7 +538,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       when(f.storage.findEntitlement(f.tx, id, "api_calls"))
         .thenReturn(ok[Option[Entitlement]](Some(entitlement.copy(allocatedQuota = 3, resetDate = Some(now.plusSeconds(600))))))
       f.activePlan(Some(PlanType.PRO))
-      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](None))
+      when(f.storage.consumeWithEvent(eqTo(f.tx), eqTo(id), eqTo(consumption), eqTo(now), any[JsonObject]())).thenReturn(ok[Option[ConsumeResult]](None))
 
       failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe QuotaExceeded("api_calls", None)
     }
@@ -556,7 +549,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       when(f.storage.findEntitlement(f.tx, id, "api_calls"))
         .thenReturn(ok[Option[Entitlement]](Some(entitlement.copy(resetDate = Some(Instant.parse("2026-01-15T10:01:00Z"))))))
       f.activePlan(Some(PlanType.PRO))
-      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](None))
+      when(f.storage.consumeWithEvent(eqTo(f.tx), eqTo(id), eqTo(consumption), eqTo(now), any[JsonObject]())).thenReturn(ok[Option[ConsumeResult]](None))
 
       failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe QuotaExceeded("api_calls", Some(60L))
 
@@ -568,7 +561,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       activeCustomer(f)
       when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](Some(entitlement)))
       f.activePlan(Some(PlanType.PRO))
-      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](None))
+      when(f.storage.consumeWithEvent(eqTo(f.tx), eqTo(id), eqTo(consumption), eqTo(now), any[JsonObject]())).thenReturn(ok[Option[ConsumeResult]](None))
       var committed = false
       doAnswer { invocation =>
         invocation.getArgument[SqlClient => Future[Any]](0)(f.tx).map { result => committed = true; result }
@@ -588,7 +581,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       // The reset date is still in the future (by 500 ms), so Duration.between(...).getSeconds is 0.
       when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](Some(entitlement.copy(resetDate = Some(now.plusMillis(500))))))
       f.activePlan(Some(PlanType.PRO))
-      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](None))
+      when(f.storage.consumeWithEvent(eqTo(f.tx), eqTo(id), eqTo(consumption), eqTo(now), any[JsonObject]())).thenReturn(ok[Option[ConsumeResult]](None))
 
       failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe QuotaExceeded("api_calls", Some(1L))
     }
@@ -598,7 +591,7 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       activeCustomer(f)
       when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](Some(entitlement)))
       f.activePlan(Some(PlanType.PRO))
-      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](None))
+      when(f.storage.consumeWithEvent(eqTo(f.tx), eqTo(id), eqTo(consumption), eqTo(now), any[JsonObject]())).thenReturn(ok[Option[ConsumeResult]](None))
 
       failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe QuotaExceeded("api_calls", None)
     }
