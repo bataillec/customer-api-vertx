@@ -38,18 +38,18 @@ class MigrationsIT extends AnyWordSpec with Matchers {
   }
 
   "the migrations" should {
-    "apply V1 to V6 on an empty database" in {
+    "apply V1 to V7 on an empty database" in {
       val db     = ContainersSupport.newDatabase("migrate")
       val result = flyway(db).migrate()
 
       result.success shouldBe true
-      result.migrationsExecuted shouldBe 6
+      result.migrationsExecuted shouldBe 7
 
       withConnection(db) { conn =>
         val tables = query(conn, "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")(
           _.getString(1)
         )
-        tables should contain allOf ("customers", "subscriptions", "entitlements", "plan_quotas")
+        tables should contain allOf ("customers", "subscriptions", "entitlements", "plan_quotas", "outbox")
       }
     }
 
@@ -69,6 +69,20 @@ class MigrationsIT extends AnyWordSpec with Matchers {
           ("ENTERPRISE", "API_CALLS_MONTHLY", 10000000L, true),
           ("ENTERPRISE", "STORAGE_GB", 1000L, false)
         )
+      }
+    }
+
+    "create the outbox, with an index on the unsent rows and one on the sent rows" in {
+      val db = ContainersSupport.newDatabase("outbox")
+      flyway(db).migrate()
+
+      withConnection(db) { conn =>
+        val columns = query(conn, "SELECT column_name || ':' || is_nullable FROM information_schema.columns WHERE table_name = 'outbox'")(_.getString(1))
+        columns should contain theSameElementsAs List("id:NO", "customer_id:NO", "payload:NO", "created_at:NO", "sent_at:YES")
+
+        val indexes = query(conn, "SELECT indexname || ' ' || indexdef FROM pg_indexes WHERE tablename = 'outbox'")(_.getString(1))
+        indexes.exists(i => i.startsWith("outbox_unsent_idx") && i.contains("WHERE (sent_at IS NULL)")) shouldBe true
+        indexes.exists(i => i.startsWith("outbox_sent_idx") && i.contains("WHERE (sent_at IS NOT NULL)")) shouldBe true
       }
     }
 
@@ -116,7 +130,7 @@ class MigrationsIT extends AnyWordSpec with Matchers {
         )
       }
 
-      flyway(db).migrate().migrationsExecuted shouldBe 3
+      flyway(db).migrate().migrationsExecuted shouldBe 4
 
       withConnection(db) { conn =>
         val statuses = query(

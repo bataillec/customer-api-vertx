@@ -4,6 +4,7 @@ import io.vertx.core.Vertx
 import io.vertx.core.eventbus.{DeliveryOptions, ReplyException, ReplyFailure}
 import me.bataillec.portfolio.customer.AuditVerticle
 import me.bataillec.portfolio.customer.Constants.AUDIT_HEALTH_ADDRESS
+import me.bataillec.portfolio.customer.support.EnvironmentUtils
 import me.bataillec.portfolio.customer.support.FutureUtils.{await, failureOf}
 import org.scalatest.BeforeAndAfterEach
 import org.scalatest.matchers.should.Matchers
@@ -14,12 +15,19 @@ import scala.compiletime.uninitialized
 class AuditVerticleSpec extends AnyWordSpec with Matchers with BeforeAndAfterEach {
   private var vertx: Vertx = uninitialized
 
-  override def beforeEach(): Unit = vertx = Vertx.vertx()
+  // Postgres is unreachable (port 1): the relay must not find a database of the machine and publish its events
+  override def beforeEach(): Unit = {
+    EnvironmentUtils.setEnv("PG_PORT", "1")
+    vertx = Vertx.vertx()
+  }
 
-  override def afterEach(): Unit = await(vertx.close())
+  override def afterEach(): Unit = {
+    try await(vertx.close())
+    finally EnvironmentUtils.unsetEnv("PG_PORT")
+  }
 
   "start" should {
-    "register the audit consumers, without connecting to Kafka" in {
+    "register the health consumer and start relaying, without connecting to Kafka or Postgres" in {
       await(vertx.deployVerticle(new AuditVerticle))
 
       // The health check now asks Kafka for the topic metadata, and there is no broker in a unit test:

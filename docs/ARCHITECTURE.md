@@ -28,7 +28,7 @@ C4Context
     System_Ext(consumers, "Platform consumers", "Other platform services reading the audit topic")
     Rel(client, api, "Calls", "HTTP/JSON, RFC 9457 problems on error")
     Rel(api, pg, "Reads and writes", "Vert.x PG client, Flyway migrations")
-    Rel(api, kafka, "Publishes audit events", "Kafka producer, acks=all, idempotent")
+    Rel(api, kafka, "Publishes audit events from the outbox", "Kafka producer, acks=all, idempotent")
     Rel(consumers, kafka, "Consume", "")
 ```
 
@@ -45,8 +45,8 @@ C4Container
 
     System_Boundary(platform, "Customer API (one image, one process per verticle)") {
         Container(http, "HttpServerVerticle", "Scala 3, Vert.x Web + OpenAPI", "Validates requests against openapi.yaml, forwards them over the event bus, maps replies and failures to HTTP. Exposes /health and /openapi.json")
-        Container(customer, "CustomerVerticle x N", "Scala 3, Vert.x PG client, Flyway", "Business rules and SQL. Runs the migrations at start. Sends audit events")
-        Container(audit, "AuditVerticle", "Scala 3, Vert.x Kafka client", "Writes each audit event to Kafka")
+        Container(customer, "CustomerVerticle x N", "Scala 3, Vert.x PG client, Flyway", "Business rules and SQL. Runs the migrations at start. Writes each audit event to the outbox table, in the transaction of the change")
+        Container(audit, "AuditVerticle", "Scala 3, Vert.x PG and Kafka clients", "Outbox relay: reads the unsent audit events from Postgres, writes them to Kafka, marks them sent")
         ContainerDb(hz, "Hazelcast cluster", "TCP/IP join, port 5701", "Event bus membership and subscriptions (not published outside the network)")
     }
 
@@ -56,8 +56,8 @@ C4Container
     Rel(http, customer, "request/reply", "event bus address 'customer'")
     Rel(http, customer, "ping", "address 'customer.health'")
     Rel(http, audit, "ping", "address 'audit.health'")
-    Rel(customer, audit, "send (fire and forget)", "address 'audit'")
     Rel(customer, pg, "SQL", "pool of 16, transactions")
+    Rel(audit, pg, "outbox", "reads unsent rows, marks them sent; advisory lock = leader")
     Rel(audit, kafka, "produce", "key = customer_id")
     Rel_D(http, hz, "joins")
     Rel_D(customer, hz, "joins")
@@ -79,12 +79,11 @@ flowchart LR
 
     http -- " customer " --> c1
     http -- " customer " --> c2
-    c1 -- " audit " --> aud
-    c2 -- " audit " --> aud
     http -. " customer.health / audit.health " .-> c1
     http -. " ping " .-> aud
     c1 -->|SQL| pg[(PostgreSQL)]
-    c2 -->|SQL| pg
+    c2 -->|SQL, incl. outbox rows| pg
+    aud -->|relay the outbox| pg
     aud -->|produce| kafka[[Kafka<br/>customer.events.v1]]
     pgadmin[pgAdmin :5050] -.-> pg
     kui[Kafka UI :8090] -.-> kafka
@@ -94,7 +93,7 @@ flowchart LR
 |------------|----------------------|-----------------|---------------------|-------------------------------------------------------------------------------|
 | `http`     | `HttpServerVerticle` | yes (stateless) | the event bus       | `HTTP_PORT` (8080)                                                            |
 | `customer` | `CustomerVerticle`   | yes, any number | Postgres, event bus | `PG_HOST`, `PG_PORT`, `PG_DATABASE`, `PG_USER`, `PG_PASSWORD`, `PG_POOL_SIZE` |
-| `audit`    | `AuditVerticle`      | one is enough   | Kafka, event bus    | `KAFKA_BOOTSTRAP_SERVERS`, `AUDIT_TOPIC`                                      |
+| `audit`    | `AuditVerticle`      | one relays, the others stand by | Kafka, Postgres, event bus (health only) | `KAFKA_BOOTSTRAP_SERVERS`, `AUDIT_TOPIC`, the `PG_*` of `customer`, `OUTBOX_POLL_INTERVAL_MS` (200), `OUTBOX_BATCH_SIZE` (100), `OUTBOX_RETENTION_DAYS` (7) |
 
 ## 3. Components inside each verticle (C4 level 3)
 
@@ -114,9 +113,9 @@ flowchart TB
     subgraph CustomerVerticle
         direction TB
         ch["CustomerHandlerImpl<br/>consumer on 'customer': dispatch on operationId header"]
-        co["CustomerOperations<br/>business rules, transactions, audit calls"]
+        co["CustomerOperations<br/>business rules, transactions, outbox writes"]
         st["Storage / PGStorage<br/>SQL"]
-        as["AuditSenderImpl<br/>builds the envelope, eventBus.send"]
+        as["OutboxRecorder<br/>builds the envelope, INSERT INTO outbox"]
         ch --> co
         co --> st
         co --> as
@@ -124,29 +123,34 @@ flowchart TB
 
     subgraph AuditVerticle
         direction TB
-        ah["AuditHandlerImpl<br/>consumer on 'audit'"]
+        ah["health consumer on 'audit.health'"]
         ao["AuditOperation"]
+        rl["OutboxRelay<br/>leader loop"]
+        os["PGOutboxStore<br/>advisory lock, fetch, mark sent, prune"]
         kw["KafkaAuditWriter<br/>producer + admin client"]
         ah --> ao --> kw
+        ao --> rl
+        rl --> os
+        rl --> kw
     end
 
     cs ==>|" event bus 'customer' "| ch
-    as ==>|" event bus 'audit' "| ah
     st --> pg[(PostgreSQL)]
+    os --> pg
     kw --> kafka[[Kafka]]
 ```
 
 | Package    | Role                                                                                                                                                                                                   |
 |------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `http`     | `ApiRoutes` (router built from the OpenAPI contract), `Problem` (RFC 9457 bodies), `HttpResponse` (the reply envelope that crosses the event bus), `WithHttpResponse` (turns a domain object into one) |
-| `eventbus` | `*Sender` (caller side) and `*Handler` (consumer side) for `customer` and `audit`, plus `SenderUtils` (health ping/pong) and `EventbusUtils` (30 s timeout, header helpers)                            |
+| `eventbus` | `*Sender` (caller side) and `*Handler` (consumer side) for `customer`, plus `SenderUtils` (health ping/pong) and `EventbusUtils` (30 s timeout, header helpers)                            |
 | `customer` | `CustomerOperations` (rules), `Storage`/`PGStorage` (SQL), `CustomerCursor` (keyset cursor codec)                                                                                                      |
-| `audit`    | `AuditOperation`, `AuditLogger`, `KafkaAuditWriter`                                                                                                                                                    |
+| `audit`    | `Outbox`/`OutboxRecorder` (write side), `OutboxRelay`, `OutboxStore`/`PGOutboxStore` (read side), `AuditOperation`, `AuditLogger`, `KafkaAuditWriter`                                                                                                                                                  |
 | `domain`   | Case classes, enums (`CustomerStatus`, `PlanType`, `SubscriptionStatus`) and the sealed `DomainError` family                                                                                           |
 | `config`   | `*Config.fromEnv()`: one config class per verticle                                                                                                                                                     |
 | `json`     | `JsonSupport`: Jackson codec for the domain objects                                                                                                                                                    |
 
-The seams (`CustomerOps`, `Storage`, `AuditSender`, `AuditOps`, `AuditLogger`) are traits, so every layer is unit-tested
+The seams (`CustomerOps`, `Storage`, `Outbox`, `OutboxStore`, `AuditOps`, `AuditLogger`) are traits, so every layer is unit-tested
 with mocks.
 
 ## 4. Event bus contract
@@ -154,9 +158,8 @@ with mocks.
 | Address           | Pattern                     | Sender               | Consumer              | Body                                | Headers                                                         |
 |-------------------|-----------------------------|----------------------|-----------------------|-------------------------------------|-----------------------------------------------------------------|
 | `customer`        | request/reply, 30 s timeout | `CustomerSenderImpl` | `CustomerHandlerImpl` | request JSON as a String (or none)  | `operationId`, `id` (path), `limit`, `cursor`, `status` (query) |
-| `audit`           | `send`, no reply            | `AuditSenderImpl`    | `AuditHandlerImpl`    | the event envelope as a JSON String | none                                                            |
 | `customer.health` | request/reply, 4 s timeout  | `/health/ready`      | `CustomerHandlerImpl` | `"ping"`                            | none                                                            |
-| `audit.health`    | request/reply, 4 s timeout  | `/health/ready`      | `AuditHandlerImpl`    | `"ping"`                            | none                                                            |
+| `audit.health`    | request/reply, 4 s timeout  | `/health/ready`      | `AuditVerticle`       | `"ping"`, replies with the outbox backlog as JSON | none                                                            |
 
 **Reply of `customer`**: a JSON String of an `HttpResponse`: `{ "statusCode", "contentType", "body", "headers" }`. The
 HTTP verticle does not interpret business results: it copies the status, headers and body (adding `trace_id` to problem
@@ -221,7 +224,7 @@ sequenceDiagram
 
 ### 5.2 Create a customer (`POST /customers`)
 
-A single statement, so no explicit transaction. The audit event is sent after the insert succeeded.
+One transaction: the customer and its audit event commit together.
 
 ```mermaid
 sequenceDiagram
@@ -230,22 +233,23 @@ sequenceDiagram
     participant H as HttpServerVerticle
     participant CU as CustomerVerticle
     participant DB as PostgreSQL
-    participant A as AuditVerticle
-    participant K as Kafka
     C ->> H: POST /customers {email, companyName}
     H ->> CU: request("customer", operationId=createCustomer)
+    CU ->> DB: BEGIN
     CU ->> DB: INSERT INTO customers ... RETURNING *
     alt email already used (23505 on lower(email))
         DB -->> CU: unique violation
+        CU ->> DB: ROLLBACK
         CU -->> H: reply 409 EMAIL_ALREADY_USED
         H -->> C: 409 application/problem+json
     else inserted
         DB -->> CU: the row
-        CU -) A: send("audit", CUSTOMER_CREATED)
+        CU ->> DB: INSERT INTO outbox (CUSTOMER_CREATED)
+        CU ->> DB: COMMIT
         CU -->> H: reply 201 + Location
         H -->> C: 201 Created, Location: /customers/{id}
-        A ->> K: produce(key = customer_id, value = envelope)
     end
+    note over CU, DB: The audit verticle publishes the event to Kafka afterwards (5.7)
 ```
 
 ### 5.3 Subscribe to a plan (`POST /customers/{id}/subscriptions`)
@@ -260,7 +264,6 @@ sequenceDiagram
     participant H as HttpServerVerticle
     participant CU as CustomerVerticle
     participant DB as PostgreSQL
-    participant A as AuditVerticle
     C ->> H: POST /customers/{id}/subscriptions {planType}
     H ->> CU: request("customer", operationId=subscribe, id)
     CU ->> DB: BEGIN
@@ -281,7 +284,7 @@ sequenceDiagram
             loop each feature of the plan (sorted)
                 CU ->> DB: INSERT INTO entitlements ... ON CONFLICT (customer_id, feature_key)<br/>DO UPDATE allocated_quota (consumed_quota is kept)
             end
-            CU -) A: send(SUBSCRIPTION_CHANGED, plan_type, previous_plan_type)
+            CU ->> DB: INSERT INTO outbox (SUBSCRIPTION_CHANGED, plan_type, previous_plan_type)
             CU ->> DB: COMMIT
             CU -->> H: 201 subscription + entitlements, Location
         end
@@ -300,7 +303,6 @@ sequenceDiagram
     participant H as HttpServerVerticle
     participant CU as CustomerVerticle
     participant DB as PostgreSQL
-    participant A as AuditVerticle
     C ->> H: POST .../entitlements/consume {featureKey, amount}
     H ->> CU: request("customer", operationId=consumeEntitlement)
     CU ->> DB: BEGIN
@@ -322,7 +324,8 @@ sequenceDiagram
                 alt no active subscription
                     CU -->> H: 409 NO_ACTIVE_SUBSCRIPTION
                 else quota exhausted
-                    CU -) A: send(QUOTA_EXCEEDED, feature_key)
+                    CU ->> DB: INSERT INTO outbox (QUOTA_EXCEEDED, feature_key)
+                    CU ->> DB: COMMIT (the refusal is a value, so the event is kept)
                     CU -->> H: 429 QUOTA_EXCEEDED + Retry-After (seconds to reset_date, absent if amount > allocation or no reset)
                 end
             end
@@ -343,7 +346,6 @@ sequenceDiagram
     participant H as HttpServerVerticle
     participant CU as CustomerVerticle
     participant DB as PostgreSQL
-    participant A as AuditVerticle
     C ->> H: PATCH /customers/{id} {companyName?, status?}
     H ->> CU: request("customer", operationId=updateCustomer)
     CU ->> DB: BEGIN
@@ -357,7 +359,7 @@ sequenceDiagram
             CU ->> DB: UPDATE subscriptions SET status='CANCELED', end_date=now() WHERE ACTIVE
         end
         CU ->> DB: UPDATE customers SET company_name=COALESCE(..), status=COALESCE(..), updated_at=now() RETURNING *
-        CU -) A: send(CUSTOMER_UPDATED, company_name, old_status, new_status)
+        CU ->> DB: INSERT INTO outbox (CUSTOMER_UPDATED, company_name, old_status, new_status)
         CU ->> DB: COMMIT
         CU -->> H: 200 customer
     end
@@ -388,31 +390,51 @@ sequenceDiagram
 
 Without a `status` filter the query excludes `DELETED` customers.
 
-### 5.7 Audit delivery
+### 5.7 Audit delivery (transactional outbox)
+
+An event is a row of the `outbox` table, written in the transaction of the change it describes: it commits or rolls back
+with it. The audit verticle then relays the rows to Kafka.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant CU as CustomerOperations
-    participant AS as AuditSenderImpl
-    participant EB as Event bus
-    participant AH as AuditHandlerImpl
+    participant OR as OutboxRecorder
+    participant DB as PostgreSQL
+    participant RL as OutboxRelay (audit verticle)
     participant KW as KafkaAuditWriter
     participant K as Kafka
-    CU ->> AS: send(action, customerId, extras)
-    AS ->> AS: build the envelope (event_id, event_type, occurred_at, producer, schema_version, customer_id)
-    AS -) EB: send("audit", JSON) no reply expected
-    EB ->> AH: Message[String]
-    AH ->> KW: audit(msg)
-    KW ->> K: producer.send(topic, key=customer_id, value=msg) acks=all, idempotent
-    alt failure
-        K -->> KW: error
-        KW -->> AH: failed Future
-        AH ->> AH: log the error, the event is lost
+    CU ->> OR: record(tx, eventType, customerId, extras)
+    OR ->> OR: build the envelope (event_id, event_type, occurred_at, producer, schema_version, customer_id)
+    OR ->> DB: INSERT INTO outbox (customer_id, payload) on the transaction of the change
+    note over CU, DB: COMMIT, or ROLLBACK: the row follows the change
+    loop every OUTBOX_POLL_INTERVAL_MS, at once while batches are full
+        RL ->> DB: pg_try_advisory_lock (once: the leader keeps its connection)
+        RL ->> DB: SELECT unsent rows ORDER BY id LIMIT OUTBOX_BATCH_SIZE
+        loop each customer in parallel, its rows one after the other
+            RL ->> KW: audit(payload)
+            KW ->> K: producer.send(topic, key=customer_id, value=payload) acks=all, idempotent
+            alt failure
+                K -->> KW: error
+                RL ->> RL: stop this customer here: its next rows wait for the next round
+            end
+        end
+        RL ->> DB: UPDATE outbox SET sent_at = now() WHERE id = ANY(the rows acknowledged)
     end
+    RL ->> DB: once a minute: DELETE rows sent more than OUTBOX_RETENTION_DAYS ago
 ```
 
-Records of one customer share a key, hence a partition, so their order is kept.
+- **Order.** `outbox.id` is assigned under the customer row lock, so it grows with the commit order of one customer.
+  The relay reads by `id`, and sends a customer's rows one after the other, each acknowledged before the next. Records
+  of one customer share a key, hence a partition.
+- **One relay at a time.** Several `audit` processes may run: the one that holds the Postgres advisory lock (on a
+  connection of its own) relays, the others retry every 5 s. If the leader dies, its connection closes, the lock is
+  released and another one takes over. `FOR UPDATE SKIP LOCKED` was not used: with several relays it would let a later
+  row of a customer overtake an earlier one that another relay holds.
+- **At-least-once.** A crash between the Kafka acknowledgement and the `sent_at` update publishes the row again, with
+  the same `event_id`. Consumers deduplicate on `event_id`.
+- **Kafka down.** Nothing is lost and the API keeps answering: the rows wait in the table, and the relay retries
+  (2 s backoff). `/health/ready` reports the backlog.
 
 ### 5.8 Readiness (`GET /health/ready`)
 
@@ -422,7 +444,7 @@ sequenceDiagram
     actor P as Probe
     participant H as HttpServerVerticle
     participant CH as CustomerHandlerImpl
-    participant AH as AuditHandlerImpl
+    participant AH as AuditVerticle
     participant DB as PostgreSQL
     participant K as Kafka
     P ->> H: GET /health/ready
@@ -435,7 +457,8 @@ sequenceDiagram
         H ->> AH: request("audit.health", "ping", 4 s)
         AH ->> K: admin.describeCluster() (3 s)
         K -->> AH: ok
-        AH -->> H: "pong" (or fail 503)
+        AH ->> DB: outbox backlog (count, age of the oldest), 1 s, best effort
+        AH -->> H: the backlog as JSON, reported as the check's details (or fail 503 when Kafka is down)
     end
     H -->> P: 200 UP, or 503 DOWN with the failing check
 ```
@@ -603,7 +626,7 @@ flowchart TD
 | Endpoint            | Checks                                                                                               | Status           |
 |---------------------|------------------------------------------------------------------------------------------------------|------------------|
 | `GET /health/live`  | the HTTP verticle answers                                                                            | 200              |
-| `GET /health/ready` | `customer-verticle` (a customer node runs `SELECT 1`) and `audit-verticle` (Kafka `describeCluster`) | 200 UP, 503 DOWN |
+| `GET /health/ready` | `customer-verticle` (a customer node runs `SELECT 1`) and `audit-verticle` (Kafka `describeCluster`; the outbox backlog is reported, not checked) | 200 UP, 503 DOWN |
 
 Timeouts are nested so that each layer fails by itself before the one above gives up: Kafka admin 3 s, event bus ping 4
 s, health check 5 s.
@@ -647,11 +670,15 @@ flowchart LR
   stays a thin translator.
 - **Correctness is in Postgres, not in memory.** The customer row lock (`FOR UPDATE`) serializes the operations of one
   customer across nodes, and the consume `UPDATE` is atomic and guarded, so a quota is exact with several writers.
-- **Audit is fire-and-forget.** There is no outbox: if the audit verticle or Kafka is down, events are logged and lost.
-  Consequently:
-    - in `subscribe`, `update` and the `QUOTA_EXCEEDED` path, the event is sent *before* the transaction commits, so a
-      failed commit can leave an event for a change that did not happen;
-    - a successful consume emits no event (high volume).
+- **Audit is a transactional outbox.** Every event is written to the `outbox` table in the transaction of its change, so
+  a rolled back change leaves no event and a committed one cannot lose its event, even if the process dies right after
+  the commit. The audit verticle relays the rows to Kafka (5.7). Consequently:
+    - delivery is at-least-once: consumers deduplicate on `event_id`;
+    - a refused consume (429) still keeps its `QUOTA_EXCEEDED` event: the refusal leaves the transaction as a value and
+      only becomes a failure after the commit;
+    - Kafka being down does not affect the API, only the delay of the events. A long outage grows the table, which
+      `/health/ready` reports (`outbox_backlog`, `outbox_oldest_age_seconds`);
+    - a successful consume emits no event yet.
 - **Timeouts do not cancel work.** After the 30 s the client gets a 504 but the transaction can still commit. Consume
   has no idempotency key, so a retry after a 504 can consume twice. Check `GET /entitlements` first.
 - **No authentication** on the HTTP API or on the Hazelcast cluster. Run it on a trusted network only.

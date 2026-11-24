@@ -32,6 +32,13 @@ object Constants {
   val AUDIT_TOPIC                           = "AUDIT_TOPIC"
   val AUDIT_TOPIC_DEFAULT_VALUE             = "customer.events.v1"
 
+  val OUTBOX_POLL_INTERVAL_MS               = "OUTBOX_POLL_INTERVAL_MS"
+  val OUTBOX_POLL_INTERVAL_MS_DEFAULT_VALUE = 200
+  val OUTBOX_BATCH_SIZE                     = "OUTBOX_BATCH_SIZE"
+  val OUTBOX_BATCH_SIZE_DEFAULT_VALUE       = 100
+  val OUTBOX_RETENTION_DAYS                 = "OUTBOX_RETENTION_DAYS"
+  val OUTBOX_RETENTION_DAYS_DEFAULT_VALUE   = 7
+
   // endregion
 
   // region JSON Fields
@@ -80,7 +87,7 @@ object Constants {
   // region Eventbus addresses
 
   val CUSTOMER_ADDRESS        = "customer"
-  val AUDIT_ADDRESS           = "audit"
+  val AUDIT_ADDRESS           = "audit" // only the health check: the events travel through the outbox table
   val CUSTOMER_HEALTH_ADDRESS = s"$CUSTOMER_ADDRESS.health"
   val AUDIT_HEALTH_ADDRESS    = s"$AUDIT_ADDRESS.health"
 

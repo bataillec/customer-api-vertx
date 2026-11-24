@@ -154,7 +154,7 @@ class PGStorageSpec extends AnyWordSpec with Matchers {
     "insert the customer and return it" in {
       val db = returning(customerRow())
 
-      await(db.storage.insertCustomer(CreateCustomer("a@b.c", Some("ACME")))) shouldBe customer
+      await(db.storage.insertCustomer(db.tx, CreateCustomer("a@b.c", Some("ACME")))) shouldBe customer
 
       db.last.sql should include("INSERT INTO customers")
       values(db.last.params.get) shouldBe Seq("a@b.c", "ACME")
@@ -163,7 +163,7 @@ class PGStorageSpec extends AnyWordSpec with Matchers {
     "send a null company name when there is none" in {
       val db = returning(customerRow(company = null))
 
-      await(db.storage.insertCustomer(CreateCustomer("a@b.c", None))).companyName shouldBe None
+      await(db.storage.insertCustomer(db.tx, CreateCustomer("a@b.c", None))).companyName shouldBe None
 
       values(db.last.params.get) shouldBe Seq("a@b.c", null)
     }
@@ -171,18 +171,38 @@ class PGStorageSpec extends AnyWordSpec with Matchers {
     "fail with EmailAlreadyUsed on a unique violation" in {
       val db = failing(new PgException("duplicate", "ERROR", "23505", "detail"))
 
-      failureOf(db.storage.insertCustomer(CreateCustomer("a@b.c", None))) shouldBe EmailAlreadyUsed("a@b.c")
+      failureOf(db.storage.insertCustomer(db.tx, CreateCustomer("a@b.c", None))) shouldBe EmailAlreadyUsed("a@b.c")
     }
 
     "propagate a Postgres error that is not a unique violation" in {
       val error = new PgException("bad", "ERROR", "42601", "detail")
       val db    = failing(error)
 
-      failureOf(db.storage.insertCustomer(CreateCustomer("a@b.c", None))) shouldBe error
+      failureOf(db.storage.insertCustomer(db.tx, CreateCustomer("a@b.c", None))) shouldBe error
     }
 
     "propagate any other error" in {
-      failureOf(failing(boom).storage.insertCustomer(CreateCustomer("a@b.c", None))) shouldBe boom
+      val db = failing(boom)
+
+      failureOf(db.storage.insertCustomer(db.tx, CreateCustomer("a@b.c", None))) shouldBe boom
+    }
+  }
+
+  "insertOutbox" should {
+    "insert the customer id and the payload on the given client" in {
+      val db      = returning()
+      val payload = io.vertx.core.json.JsonObject().put("event_type", "CUSTOMER_CREATED")
+
+      await(db.storage.insertOutbox(db.tx, id, payload))
+
+      db.last.sql should include("INSERT INTO outbox")
+      values(db.last.params.get) shouldBe Seq(id, payload)
+    }
+
+    "propagate the failure, so that the transaction rolls back" in {
+      val db = failing(boom)
+
+      failureOf(db.storage.insertOutbox(db.tx, id, io.vertx.core.json.JsonObject())) shouldBe boom
     }
   }
 

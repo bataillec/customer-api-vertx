@@ -6,14 +6,16 @@ import me.bataillec.portfolio.customer.customer.CustomerCursor.*
 import me.bataillec.portfolio.customer.domain
 import me.bataillec.portfolio.customer.domain.*
 import me.bataillec.portfolio.customer.domain.DomainError.*
-import me.bataillec.portfolio.customer.eventbus.AuditSender
+import me.bataillec.portfolio.customer.audit.Outbox
 import org.slf4j.LoggerFactory
 
 import java.time.{Clock, Duration}
 import java.util.UUID
 import scala.util.{Failure, Success, Try}
 
-class CustomerOperations(storage: Storage, auditSender: AuditSender, clock: Clock = Clock.systemUTC()) extends CustomerOps {
+class CustomerOperations(storage: Storage, outbox: Outbox, clock: Clock = Clock.systemUTC()) extends CustomerOps {
+
+  private type Outcome = Either[DomainError, ConsumeResult]
 
   private val logger = LoggerFactory.getLogger(getClass)
 
@@ -21,11 +23,11 @@ class CustomerOperations(storage: Storage, auditSender: AuditSender, clock: Cloc
 
   override def createCustomer(createCustomer: CreateCustomer): Future[Customer] = {
     logger.debug("Creating a new customer: {}", createCustomer)
-    for {
-      c <- storage.insertCustomer(createCustomer)
-    } yield {
-      auditSender.send("CUSTOMER_CREATED", c.id)
-      c
+    storage.inTransaction { tx =>
+      for {
+        c <- storage.insertCustomer(tx, createCustomer)
+        _ <- outbox.record(tx, "CUSTOMER_CREATED", c.id)
+      } yield c
     }
   }
 
@@ -66,14 +68,16 @@ class CustomerOperations(storage: Storage, auditSender: AuditSender, clock: Cloc
             cancelling
               .compose(_ => storage.updateCustomer(tx, customerId, updateCustomer))
               .compose(r =>
-                auditSender.send(
-                  "CUSTOMER_UPDATED",
-                  customerId,
-                  "company_name" -> updateCustomer.companyName.getOrElse("-"),
-                  "old_status"   -> s.toString,
-                  "new_status"   -> updateCustomer.status.map(_.toString).getOrElse("-")
-                )
-                Future.succeededFuture(r)
+                outbox
+                  .record(
+                    tx,
+                    "CUSTOMER_UPDATED",
+                    customerId,
+                    "company_name" -> updateCustomer.companyName.getOrElse("-"),
+                    "old_status"   -> s.toString,
+                    "new_status"   -> updateCustomer.status.map(_.toString).getOrElse("-")
+                  )
+                  .map(_ => r)
               )
           }
       }
@@ -97,12 +101,13 @@ class CustomerOperations(storage: Storage, auditSender: AuditSender, clock: Cloc
                     now          = clock.instant()
                     // Same view as GET /entitlements: a period that has already ended starts anew
                     entitlements <- storage.applyPlan(tx, customerId, createSubscription, now).map(_.map(_.effective(now)))
+                    _            <- outbox.record(
+                                      tx,
+                                      "SUBSCRIPTION_CHANGED",
+                                      customerId,
+                                      ("plan_type" -> createSubscription.planType.toString) +: previousPlan.map(p => "previous_plan_type" -> p.toString).toSeq*
+                                    )
                   } yield {
-                    auditSender.send(
-                      "SUBSCRIPTION_CHANGED",
-                      customerId,
-                      ("plan_type" -> createSubscription.planType.toString) +: previousPlan.map(p => "previous_plan_type" -> p.toString).toSeq*
-                    )
                     SubscriptionWithEntitlements.fromSubscriptionAndEntitlements(subscription, entitlements)
                   }
               }
@@ -138,36 +143,44 @@ class CustomerOperations(storage: Storage, auditSender: AuditSender, clock: Cloc
 
   override def consumeEntitlement(customerId: UUID, consumption: Consumption): Future[ConsumeResult] = {
     logger.debug("Consuming for customer with id = {}, consumption = {}", customerId, consumption)
-    storage.inTransaction { tx =>
-      storage.lockCustomerForUpdate(tx, customerId).compose {
-        case None         => Future.failedFuture(CustomerNotFound(customerId))
-        case Some(status) =>
-          status match {
-            case CustomerStatus.ACTIVE                             =>
-              val now = clock.instant()
-              // Hot path: one guarded UPDATE (it also requires an active subscription); the lookups only explain a miss
-              storage.consume(tx, customerId, consumption, now).compose {
-                case Some(result) => Future.succeededFuture(result)
-                case None         =>
-                  storage.findEntitlement(tx, customerId, consumption.featureKey).compose {
-                    case None              => Future.failedFuture(EntitlementNotFound(customerId, consumption.featureKey))
-                    case Some(entitlement) =>
-                      storage.findActivePlan(tx, customerId).compose {
-                        case None    => Future.failedFuture(NoActiveSubscription(customerId))
-                        case Some(_) =>
-                          auditSender.send("QUOTA_EXCEEDED", customerId, "feature_key" -> consumption.featureKey)
-                          // Waiting never helps when the request is larger than the whole allocation
-                          val retryAfter =
-                            if consumption.amount > entitlement.allocatedQuota then None
-                            else entitlement.effective(now).resetDate.map(Duration.between(now, _).getSeconds.max(1L))
-                          Future.failedFuture(QuotaExceeded(consumption.featureKey, retryAfter))
-                      }
-                  }
-              }
-            case CustomerStatus.SUSPENDED | CustomerStatus.DELETED =>
-              Future.failedFuture(CustomerNotActive(customerId, status))
-          }
+    // A refused consume must still commit its QUOTA_EXCEEDED event: the refusal leaves the transaction as a value, and
+    // only becomes a failure once the transaction has committed (a failed future would roll it back).
+    storage
+      .inTransaction[Outcome] { tx =>
+        storage.lockCustomerForUpdate(tx, customerId).compose {
+          case None         => Future.failedFuture(CustomerNotFound(customerId))
+          case Some(status) =>
+            status match {
+              case CustomerStatus.ACTIVE                             =>
+                val now = clock.instant()
+                // Hot path: one guarded UPDATE (it also requires an active subscription); the lookups only explain a miss
+                storage.consume(tx, customerId, consumption, now).compose {
+                  case Some(result) => Future.succeededFuture[Outcome](Right(result))
+                  case None         =>
+                    storage.findEntitlement(tx, customerId, consumption.featureKey).compose {
+                      case None              => Future.failedFuture(EntitlementNotFound(customerId, consumption.featureKey))
+                      case Some(entitlement) =>
+                        storage.findActivePlan(tx, customerId).compose {
+                          case None    => Future.failedFuture(NoActiveSubscription(customerId))
+                          case Some(_) =>
+                            // Waiting never helps when the request is larger than the whole allocation
+                            val retryAfter =
+                              if consumption.amount > entitlement.allocatedQuota then None
+                              else entitlement.effective(now).resetDate.map(Duration.between(now, _).getSeconds.max(1L))
+                            outbox
+                              .record(tx, "QUOTA_EXCEEDED", customerId, "feature_key" -> consumption.featureKey)
+                              .map[Outcome](_ => Left(QuotaExceeded(consumption.featureKey, retryAfter)))
+                        }
+                    }
+                }
+              case CustomerStatus.SUSPENDED | CustomerStatus.DELETED =>
+                Future.failedFuture(CustomerNotActive(customerId, status))
+            }
+        }
       }
-    }
+      .compose {
+        case Right(result) => Future.succeededFuture(result)
+        case Left(refusal) => Future.failedFuture(refusal)
+      }
   }
 }

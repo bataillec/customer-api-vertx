@@ -73,7 +73,7 @@ final class PlatformStack {
 
   private val customers = CustomerNodes.map(name => name -> app(name, "CustomerVerticle", databaseEnv)).toMap
 
-  private val audit = app("audit", "AuditVerticle", Map("KAFKA_BOOTSTRAP_SERVERS" -> "kafka:9093", "AUDIT_TOPIC" -> auditTopic))
+  private val audit = app("audit", "AuditVerticle", databaseEnv ++ Map("KAFKA_BOOTSTRAP_SERVERS" -> "kafka:9093", "AUDIT_TOPIC" -> auditTopic))
 
   // Ready once the customer and the audit nodes answer the readiness check, which proves that they found each other
   private val http = app("http", "HttpServerVerticle", Map.empty)

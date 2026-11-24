@@ -1,63 +1,61 @@
 package me.bataillec.portfolio.customer.unit.config
 
 import me.bataillec.portfolio.customer.config.AuditConfig
-import me.bataillec.portfolio.customer.support.EnvironmentUtils
-import org.scalatest.Inside.inside
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 class AuditConfigSpec extends AnyWordSpec with Matchers {
-  "AuditConfig" should {
-    "be built" in {
-      val config = AuditConfig("kafka:9092", "my.topic")
+  "AuditConfig.fromEnv" should {
+    "read Kafka, the topic and the outbox settings" in {
+      val config = AuditConfig.fromEnv(
+        Map(
+          "KAFKA_BOOTSTRAP_SERVERS" -> "a:1,b:2",
+          "AUDIT_TOPIC"             -> "my.topic",
+          "OUTBOX_POLL_INTERVAL_MS" -> "50",
+          "OUTBOX_BATCH_SIZE"       -> "10",
+          "OUTBOX_RETENTION_DAYS"   -> "3"
+        )
+      )
 
-      inside(config) { case AuditConfig(servers, topic) =>
-        servers shouldBe "kafka:9092"
-        topic shouldBe "my.topic"
-      }
+      config.kafkaBootstrapServers shouldBe "a:1,b:2"
+      config.auditTopic shouldBe "my.topic"
+      config.outboxPollIntervalMs shouldBe 50
+      config.outboxBatchSize shouldBe 10
+      config.outboxRetentionDays shouldBe 3
     }
 
-    "build fromEnv" when {
-      "Use env" in {
-        EnvironmentUtils.setEnv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
-        EnvironmentUtils.setEnv("AUDIT_TOPIC", "my.topic")
+    "read the database like the customer verticles do" in {
+      val config = AuditConfig.fromEnv(Map("PG_HOST" -> "db", "PG_PORT" -> "6543", "PG_DATABASE" -> "d", "PG_USER" -> "u", "PG_PASSWORD" -> "p"))
 
-        val config = AuditConfig.fromEnv()
+      config.pg.pgHost shouldBe "db"
+      config.pg.pgPort shouldBe 6543
+      config.pg.pgDatabase shouldBe "d"
+      config.pg.pgUser shouldBe "u"
+      config.pg.pgPassword shouldBe "p"
+    }
 
-        inside(config) { case AuditConfig(servers, topic) =>
-          servers shouldBe "kafka:9092"
-          topic shouldBe "my.topic"
-        }
-      }
+    "use the defaults" in {
+      val config = AuditConfig.fromEnv(Map.empty)
 
-      "KAFKA_BOOTSTRAP_SERVERS and AUDIT_TOPIC are set" in {
-        val map = Map("KAFKA_BOOTSTRAP_SERVERS" -> "a:1,b:2", "AUDIT_TOPIC" -> "my.topic")
+      config.kafkaBootstrapServers shouldBe "localhost:9092"
+      config.auditTopic shouldBe "customer.events.v1"
+      config.pg.pgHost shouldBe "localhost"
+      config.outboxPollIntervalMs shouldBe 200
+      config.outboxBatchSize shouldBe 100
+      config.outboxRetentionDays shouldBe 7
+    }
 
-        val config = AuditConfig.fromEnv(map)
+    "ignore an unrelated variable" in {
+      AuditConfig.fromEnv(Map("TOTO" -> "tata")).auditTopic shouldBe "customer.events.v1"
+    }
 
-        inside(config) { case AuditConfig(servers, topic) =>
-          servers shouldBe "a:1,b:2"
-          topic shouldBe "my.topic"
-        }
-      }
+    "reject an outbox setting below 1" in {
+      an[IllegalArgumentException] should be thrownBy AuditConfig.fromEnv(Map("OUTBOX_BATCH_SIZE" -> "0"))
+      an[IllegalArgumentException] should be thrownBy AuditConfig.fromEnv(Map("OUTBOX_POLL_INTERVAL_MS" -> "-5"))
+    }
 
-      "use default" in {
-        val config = AuditConfig.fromEnv(Map.empty)
-
-        inside(config) { case AuditConfig(servers, topic) =>
-          servers shouldBe "localhost:9092"
-          topic shouldBe "customer.events.v1"
-        }
-      }
-
-      "ignore unrelated var" in {
-        val config = AuditConfig.fromEnv(Map("TOTO" -> "tata"))
-
-        inside(config) { case AuditConfig(servers, topic) =>
-          servers shouldBe "localhost:9092"
-          topic shouldBe "customer.events.v1"
-        }
-      }
+    "reject a setting that is not a number" in {
+      an[IllegalArgumentException] should be thrownBy AuditConfig.fromEnv(Map("OUTBOX_RETENTION_DAYS" -> "soon"))
     }
   }
 }

@@ -1,6 +1,7 @@
 package me.bataillec.portfolio.customer.customer
 
 import io.vertx.core.Future
+import io.vertx.core.json.JsonObject
 import io.vertx.pgclient.PgException
 import io.vertx.sqlclient.{Pool, Row, SqlClient, Tuple}
 import me.bataillec.portfolio.customer.domain.*
@@ -17,8 +18,8 @@ class PGStorage(pool: Pool) extends Storage {
 
   override def ping(): Future[Unit] = pool.query("SELECT 1").execute().mapEmpty()
 
-  override def insertCustomer(customer: CreateCustomer): Future[Customer] = {
-    pool
+  override def insertCustomer(tx: SqlClient, customer: CreateCustomer): Future[Customer] = {
+    tx
       .preparedQuery(
         """ INSERT INTO customers (
           |   email,
@@ -277,5 +278,12 @@ class PGStorage(pool: Pool) extends Storage {
         )
       )
       .map(_.asScala.headOption.map(ConsumeResult.fromRow))
+  }
+
+  override def insertOutbox(tx: SqlClient, customerId: UUID, payload: JsonObject): Future[Unit] = {
+    tx
+      .preparedQuery("INSERT INTO outbox (customer_id, payload) VALUES ($1, $2)")
+      .execute(Tuple.of(customerId, payload))
+      .mapEmpty()
   }
 }

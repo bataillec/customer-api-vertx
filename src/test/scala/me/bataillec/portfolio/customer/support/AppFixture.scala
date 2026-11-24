@@ -15,6 +15,9 @@ trait AppFixture extends PostgresFixture { this: Suite =>
   protected var api: ApiClient   = uninitialized
   protected var auditTopic: String = uninitialized
 
+  /** The deployment of the audit verticle (the outbox relay), so that a suite can stop it and start it again. */
+  protected var auditDeploymentId: String = uninitialized
+
   /** Partitions of the audit topic: several, so that the ordering per customer key is a real guarantee. */
   protected val AuditPartitions = 3
 
@@ -48,7 +51,7 @@ trait AppFixture extends PostgresFixture { this: Suite =>
     */
   protected def startApp(port: Int): Unit = {
     await(vertx.deployVerticle(new CustomerVerticle), 60)
-    await(vertx.deployVerticle(new AuditVerticle), 60)
+    auditDeploymentId = await(vertx.deployVerticle(new AuditVerticle), 60)
     await(vertx.deployVerticle(new HttpServerVerticle), 60)
   }
 
