@@ -221,9 +221,9 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
   }
 
   "updateCustomer" should {
-    def stubUpdate(f: Fixture, update: UpdateCustomer): Unit = {
+    def stubUpdate(f: Fixture, update: UpdateCustomer, stored: Customer = customer): Unit = {
       when(f.storage.cancelActiveSubscription(f.tx, id)).thenReturn(ok(()))
-      when(f.storage.updateCustomer(f.tx, id, update)).thenReturn(ok(customer))
+      when(f.storage.updateCustomer(f.tx, id, update)).thenReturn(ok(stored))
     }
 
     "fail with CustomerNotFound when the customer does not exist" in {
@@ -255,36 +255,39 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
       val f      = new Fixture
       val update = UpdateCustomer(Some("New"), Some(CustomerStatus.DELETED))
       f.lock(Some(CustomerStatus.ACTIVE))
-      stubUpdate(f, update)
+      val stored = customer.copy(companyName = Some("New"), status = CustomerStatus.DELETED)
+      stubUpdate(f, update, stored)
 
-      await(f.ops.updateCustomer(id, update)) shouldBe customer
+      await(f.ops.updateCustomer(id, update)) shouldBe stored
 
       verify(f.storage).cancelActiveSubscription(f.tx, id)
-      f.audit.recorded.toList shouldBe List(("CUSTOMER_UPDATED", id, List("company_name" -> "New", "old_status" -> "ACTIVE", "new_status" -> "DELETED")))
+      f.audit.recorded.toList shouldBe List(("CUSTOMER_UPDATED", id, List("old_status" -> "ACTIVE", "new_status" -> "DELETED", "company_name" -> "New")))
     }
 
     "cancel the subscription of an already deleted customer that only gets deleted again without a name" in {
       val f      = new Fixture
       val update = UpdateCustomer(None, None)
       f.lock(Some(CustomerStatus.DELETED))
-      stubUpdate(f, update)
+      val stored = customer.copy(companyName = None, status = CustomerStatus.DELETED)
+      stubUpdate(f, update, stored)
 
-      await(f.ops.updateCustomer(id, update)) shouldBe customer
+      await(f.ops.updateCustomer(id, update)) shouldBe stored
 
       verify(f.storage).cancelActiveSubscription(f.tx, id)
-      f.audit.recorded.toList shouldBe List(("CUSTOMER_UPDATED", id, List("company_name" -> "-", "old_status" -> "DELETED", "new_status" -> "-")))
+      f.audit.recorded.toList shouldBe List(("CUSTOMER_UPDATED", id, List("old_status" -> "DELETED", "new_status" -> "DELETED")))
     }
 
     "reactivate a deleted customer without cancelling anything" in {
       val f      = new Fixture
       val update = UpdateCustomer(Some("Back"), Some(CustomerStatus.ACTIVE))
       f.lock(Some(CustomerStatus.DELETED))
-      stubUpdate(f, update)
+      val stored = customer.copy(companyName = Some("Back"))
+      stubUpdate(f, update, stored)
 
-      await(f.ops.updateCustomer(id, update)) shouldBe customer
+      await(f.ops.updateCustomer(id, update)) shouldBe stored
 
       verify(f.storage, never()).cancelActiveSubscription(any[SqlClient](), any[UUID]())
-      f.audit.recorded.toList shouldBe List(("CUSTOMER_UPDATED", id, List("company_name" -> "Back", "old_status" -> "DELETED", "new_status" -> "ACTIVE")))
+      f.audit.recorded.toList shouldBe List(("CUSTOMER_UPDATED", id, List("old_status" -> "DELETED", "new_status" -> "ACTIVE", "company_name" -> "Back")))
     }
 
     "not cancel anything when an active customer is suspended" in {

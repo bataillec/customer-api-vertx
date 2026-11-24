@@ -73,9 +73,7 @@ class CustomerOperations(storage: Storage, outbox: Outbox, clock: Clock = Clock.
                     tx,
                     "CUSTOMER_UPDATED",
                     customerId,
-                    "company_name" -> updateCustomer.companyName.getOrElse("-"),
-                    "old_status"   -> s.toString,
-                    "new_status"   -> updateCustomer.status.map(_.toString).getOrElse("-")
+                    ("old_status" -> s.toString) +: ("new_status" -> r.status.toString) +: r.companyName.map(n => "company_name" -> n).toSeq*
                   )
                   .map(_ => r)
               )

@@ -9,6 +9,7 @@ import java.time.{Duration, Instant}
 import java.util.UUID
 import java.util.concurrent.{Executors, TimeUnit}
 import scala.compiletime.uninitialized
+import scala.jdk.CollectionConverters.*
 
 /** The audit flow end to end: an HTTP call, the outbox table, the audit verticle's relay and the Kafka topic.
   * The relay publishes after the commit, so the assertions poll the topic instead of expecting the event at once.
@@ -68,7 +69,30 @@ class AuditKafkaIT extends AnyWordSpec with Matchers with AppFixture {
       update.eventType shouldBe "CUSTOMER_UPDATED"
       update.field("company_name") shouldBe Some("Acme")
       update.field("old_status") shouldBe Some("ACTIVE")
-      update.field("new_status") shouldBe Some("-")
+      update.field("new_status") shouldBe Some("ACTIVE")
+    }
+
+    "publish the stored company name when only the status changes, and no sentinel" in {
+      val id = newCustomerId()
+      api.patch(s"/customers/$id", JsonObject().put("company_name", "Acme")).status shouldBe 200
+      api.setStatus(id, "SUSPENDED").status shouldBe 200
+
+      val update = probe.awaitEvents(id, 3).last
+
+      update.field("company_name") shouldBe Some("Acme")
+      update.field("old_status") shouldBe Some("ACTIVE")
+      update.field("new_status") shouldBe Some("SUSPENDED")
+      update.json.fieldNames().asScala.map(update.json.getValue) should not contain "-"
+    }
+
+    "leave the company name out when the customer has none" in {
+      val id = newCustomerId()
+      api.setStatus(id, "SUSPENDED").status shouldBe 200
+
+      val update = probe.awaitEvents(id, 2).last
+
+      update.json.containsKey("company_name") shouldBe false
+      update.field("new_status") shouldBe Some("SUSPENDED")
     }
 
     "publish a status change on delete" in {
