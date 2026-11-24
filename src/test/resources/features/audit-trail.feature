@@ -11,6 +11,12 @@ Feature: The audit trail
       | SUBSCRIPTION_CHANGED |
       | CUSTOMER_UPDATED     |
 
+  Scenario: An update records the stored company name and both statuses
+    Given a registered customer
+    When the company name of the customer is changed to "Acme"
+    And the customer is deleted
+    Then the last audit event of the customer shows the company "Acme" and the status change from "ACTIVE" to "DELETED"
+
   Scenario: The events of a customer are grouped under the customer
     Given a registered customer
     Then every audit event of the customer is keyed by the customer

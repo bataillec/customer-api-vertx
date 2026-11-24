@@ -360,7 +360,7 @@ sequenceDiagram
             CU ->> DB: UPDATE subscriptions SET status='CANCELED', end_date=now() WHERE ACTIVE
         end
         CU ->> DB: UPDATE customers SET company_name=COALESCE(..), status=COALESCE(..), updated_at=now() RETURNING *
-        CU ->> DB: INSERT INTO outbox (CUSTOMER_UPDATED, company_name, old_status, new_status)
+        CU ->> DB: INSERT INTO outbox (CUSTOMER_UPDATED, old_status, new_status, stored company_name)
         CU ->> DB: COMMIT
         CU -->> H: 200 customer
     end
