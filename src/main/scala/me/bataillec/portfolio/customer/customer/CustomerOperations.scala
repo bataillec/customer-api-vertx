@@ -155,7 +155,19 @@ class CustomerOperations(storage: Storage, outbox: Outbox, clock: Clock = Clock.
                 val now = clock.instant()
                 // Hot path: one guarded UPDATE (it also requires an active subscription); the lookups only explain a miss
                 storage.consume(tx, customerId, consumption, now).compose {
-                  case Some(result) => Future.succeededFuture[Outcome](Right(result))
+                  // Written on the same transaction: the event commits with the consumption, and a failure rolls both back
+                  case Some(result) =>
+                    outbox
+                      .record(
+                        tx,
+                        "QUOTA_CONSUMED",
+                        customerId,
+                        "feature_key"     -> result.featureKey,
+                        "amount"          -> consumption.amount,
+                        "consumed_quota"  -> result.consumedQuota,
+                        "allocated_quota" -> result.allocatedQuota
+                      )
+                      .map[Outcome](_ => Right(result))
                   case None         =>
                     storage.findEntitlement(tx, customerId, consumption.featureKey).compose {
                       case None              => Future.failedFuture(EntitlementNotFound(customerId, consumption.featureKey))

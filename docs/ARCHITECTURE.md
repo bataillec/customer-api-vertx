@@ -171,12 +171,12 @@ infrastructure failures are `ReplyException`s (see [Error handling](#7-error-han
 ```json
 {
   "event_id": "uuid",
-  "event_type": "CUSTOMER_CREATED | CUSTOMER_UPDATED | SUBSCRIPTION_CHANGED | QUOTA_EXCEEDED",
+  "event_type": "CUSTOMER_CREATED | CUSTOMER_UPDATED | SUBSCRIPTION_CHANGED | QUOTA_EXCEEDED | QUOTA_CONSUMED",
   "occurred_at": "2026-11-20T10:15:30Z",
   "producer": "customer-api",
   "schema_version": 1,
   "customer_id": "uuid",
-  "...extras": "plan_type, previous_plan_type, company_name, old_status, new_status, feature_key"
+  "...extras": "plan_type, previous_plan_type, company_name, old_status, new_status, feature_key, amount, consumed_quota, allocated_quota"
 }
 ```
 
@@ -313,7 +313,8 @@ sequenceDiagram
         CU ->> DB: UPDATE entitlements SET consumed = (reset_date passed ? 0 : consumed) + amount,<br/>reset_date = (passed ? next month : reset_date)<br/>WHERE amount <= allocated - current usage<br/>AND an ACTIVE subscription EXISTS RETURNING ...
         alt one row updated
             DB -->> CU: allocated, consumed
-            CU ->> DB: COMMIT
+            CU ->> DB: INSERT INTO outbox (QUOTA_CONSUMED, feature_key, amount, consumed_quota, allocated_quota)
+            CU ->> DB: COMMIT (the event commits with the consumption)
             CU -->> H: 200 {allocated, consumed, remaining}
         else no row
             CU ->> DB: SELECT entitlement (feature_key)
@@ -678,7 +679,8 @@ flowchart LR
       only becomes a failure after the commit;
     - Kafka being down does not affect the API, only the delay of the events. A long outage grows the table, which
       `/health/ready` reports (`outbox_backlog`, `outbox_oldest_age_seconds`);
-    - a successful consume emits no event yet.
+    - a successful consume emits `QUOTA_CONSUMED` in the same transaction, so it costs one more `INSERT` on the hot path,
+      and fails the consume if the insert fails. It is an audit event: high-volume metering stays a separate topic.
 - **Timeouts do not cancel work.** After the 30 s the client gets a 504 but the transaction can still commit. Consume
   has no idempotency key, so a retry after a 504 can consume twice. Check `GET /entitlements` first.
 - **No authentication** on the HTTP API or on the Hazelcast cluster. Run it on a trusted network only.

@@ -84,8 +84,8 @@ class ResilienceIT extends AnyWordSpec with Matchers with AppFixture {
             id
           } finally containers.unpauseKafka()
 
-        probe.awaitEvents(id, 3, java.time.Duration.ofSeconds(90)).map(_.eventType) shouldBe
-          List("CUSTOMER_CREATED", "SUBSCRIPTION_CHANGED", "QUOTA_EXCEEDED")
+        probe.awaitEvents(id, 4, java.time.Duration.ofSeconds(90)).map(_.eventType) shouldBe
+          List("CUSTOMER_CREATED", "SUBSCRIPTION_CHANGED", "QUOTA_CONSUMED", "QUOTA_EXCEEDED")
       } finally probe.close()
     }
 

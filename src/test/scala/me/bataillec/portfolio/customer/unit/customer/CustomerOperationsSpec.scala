@@ -485,10 +485,58 @@ class CustomerOperationsSpec extends AnyWordSpec with Matchers {
 
       await(f.ops.consumeEntitlement(id, consumption)) shouldBe result
 
-      f.audit.recorded shouldBe empty
-      // The hot path is the guarded UPDATE alone
+      // The hot path is the guarded UPDATE alone, and the event
       verify(f.storage, never()).findEntitlement(any(), any(), any())
       verify(f.storage, never()).findActivePlan(any(), any())
+    }
+
+    "record QUOTA_CONSUMED with the amount and the quotas after the call" in {
+      val f = new Fixture
+      activeCustomer(f)
+      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](Some(result)))
+
+      await(f.ops.consumeEntitlement(id, consumption))
+
+      f.audit.recorded.toList shouldBe List(
+        ("QUOTA_CONSUMED", id, List("feature_key" -> "api_calls", "amount" -> 5L, "consumed_quota" -> 15L, "allocated_quota" -> 100L))
+      )
+      f.audit.transactions.toList shouldBe List(f.tx)
+    }
+
+    "record QUOTA_CONSUMED before the transaction ends, so that it commits with the consumption" in {
+      val f = new Fixture
+      activeCustomer(f)
+      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](Some(result)))
+      var recordedAtCommit = -1
+      doAnswer { invocation =>
+        invocation.getArgument[SqlClient => Future[Any]](0)(f.tx).map { r => recordedAtCommit = f.audit.recorded.size; r }
+      }.when(f.storage).inTransaction[Any](any[SqlClient => Future[Any]]())
+
+      await(f.ops.consumeEntitlement(id, consumption)) shouldBe result
+
+      recordedAtCommit shouldBe 1
+    }
+
+    "fail, and so roll the consumption back, when the event cannot be recorded" in {
+      val f = new Fixture
+      activeCustomer(f)
+      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](Some(result)))
+      val boom = new RuntimeException("outbox down")
+      f.audit.failure = Some(boom)
+
+      failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe boom
+    }
+
+    "not record QUOTA_CONSUMED when the consumption is refused" in {
+      val f = new Fixture
+      activeCustomer(f)
+      when(f.storage.findEntitlement(f.tx, id, "api_calls")).thenReturn(ok[Option[Entitlement]](Some(entitlement)))
+      f.activePlan(Some(PlanType.PRO))
+      when(f.storage.consume(f.tx, id, consumption, now)).thenReturn(ok[Option[ConsumeResult]](None))
+
+      failureOf(f.ops.consumeEntitlement(id, consumption)) shouldBe a[QuotaExceeded]
+
+      f.audit.recorded.map(_._1).toList shouldBe List("QUOTA_EXCEEDED")
     }
 
     "give no retry delay when the request exceeds the whole allocation" in {
