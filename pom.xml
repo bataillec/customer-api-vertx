@@ -24,7 +24,7 @@
 
         <vertx.version>5.2.3</vertx.version>
         <flyway.version>13.12.2</flyway.version>
-        <postgresql.version>42.7.14</postgresql.version>
+        <postgresql.version>42.7.15</postgresql.version>
 
         <scalatest.version>3.2.20</scalatest.version>
 
